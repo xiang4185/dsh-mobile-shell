@@ -10,6 +10,9 @@ const config: CapacitorConfig = {
   appId: 'com.dshmobile.app',
   appName: 'DSH',
   webDir: 'www',
+  // Fallback color for any native area briefly exposed while WKWebView is
+  // being resized by the iOS keyboard.
+  backgroundColor: '#ffffff',
   server: {
     // LAN hosts are plain HTTP until phase 2 adds TLS at the proxy (ADR-0004).
     // http scheme keeps the launcher origin non-secure so healthz fetches to
@@ -24,6 +27,18 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: 'never',
+  },
+  plugins: {
+    Keyboard: {
+      // iOS only: DSHKeyboardViewportViewController is the single viewport
+      // driver and follows keyboardLayoutGuide interactively. Disable the
+      // plugin resize path so no second frame update competes with UIKit.
+      resize: 'none',
+      // Capacitor 8.0.4+ can tint the small native backdrop area that may be
+      // exposed between a resized WKWebView and the keyboard. Match the
+      // current DOM background so light/dark themes do not show a black seam.
+      autoBackdropColor: 'dom',
+    },
   },
 }
 

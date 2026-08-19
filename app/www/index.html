@@ -389,6 +389,14 @@ if (QR_PAIR_CODE !== null || APP_SESSION_TOKEN !== null || location.search !== C
 
 /* ── Carrier detection ── */
 const IS_APP = typeof window.Capacitor !== 'undefined'
+if (IS_APP) {
+  // The iPhone input accessory row (previous/next/done) consumes a large strip
+  // between DSH's composer and the software keyboard. DSH has one primary
+  // composer, so the native accessory navigation is unnecessary here.
+  const keyboard = window.Capacitor?.Plugins?.Keyboard
+  keyboard?.setResizeMode?.({ mode: 'native' }).catch(() => {})
+  keyboard?.setAccessoryBarVisible?.({ isVisible: false }).catch(() => {})
+}
 if (!IS_APP) {
   document.body.classList.add('web')
   $('pairServer').value = location.origin + '/'

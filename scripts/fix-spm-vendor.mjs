@@ -21,7 +21,12 @@ const source = fs.readFileSync(manifest, 'utf8')
 if (source.includes(LOCAL)) {
   console.log('fix-spm-vendor: already vendored, nothing to do')
 } else if (source.includes(REMOTE)) {
-  fs.writeFileSync(manifest, source.replace(REMOTE, `${LOCAL} // vendored (ADR-0005); restored by fix-spm-vendor — upstream was ${REMOTE}`))
+  // Put the separator BEFORE the line comment. Capacitor writes a trailing
+  // comma after the remote dependency; if we only replace REMOTE, that comma
+  // lands after `//` and is commented out. It went unnoticed while this was
+  // the only package, but becomes invalid Swift as soon as a second SPM
+  // dependency (for example CapacitorKeyboard) follows it.
+  fs.writeFileSync(manifest, source.replace(REMOTE, `${LOCAL}, // vendored (ADR-0005); restored by fix-spm-vendor — upstream was ${REMOTE}`))
   console.log('fix-spm-vendor: restored local-path dependency')
 } else {
   console.error('fix-spm-vendor: Package.swift matches neither the upstream remote nor the vendored local declaration — inspect it by hand')

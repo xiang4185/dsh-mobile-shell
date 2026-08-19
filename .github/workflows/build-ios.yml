@@ -1,5 +1,7 @@
 name: build-ios
 
+# Fork trigger: keep this workflow indexed and runnable on GitHub-hosted macOS.
+
 on:
   push:
     branches: [main]
@@ -51,3 +53,24 @@ jobs:
         with:
           name: dsh-mobile-ios-simulator-app
           path: DSH-simulator.app.zip
+
+      - name: Build for iOS Device (unsigned)
+        run: >-
+          xcodebuild -project app/ios/App/App.xcodeproj -scheme App
+          -configuration Debug -sdk iphoneos
+          -destination 'generic/platform=iOS'
+          -derivedDataPath app/ios/build-device
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Package unsigned device IPA
+        run: |
+          rm -rf device-payload
+          mkdir -p device-payload/Payload
+          cp -R app/ios/build-device/Build/Products/Debug-iphoneos/App.app device-payload/Payload/
+          cd device-payload
+          zip -qry "$GITHUB_WORKSPACE/DSH-unsigned.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-ios-unsigned-device-ipa
+          path: DSH-unsigned.ipa
