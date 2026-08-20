@@ -2,138 +2,177 @@
 
 [English](README.md) | 中文
 
-> **iOS 维护提示：** 修改 iOS 端前请先阅读根目录 [`IOS-STABLE-BASELINE.md`](IOS-STABLE-BASELINE.md) 和 [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)。其中记录了 1.1.1 当前 Stable、1.1.0 原始回退锚点、键盘/Settings/Drawer/启动链不可随意破坏的约束，以及固定回归检查。
+`dsh-mobile-shell` 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区移动客户端与安全远程访问层。它不会把 Harness 搬到手机上运行，而是通过 Android / iOS WebView 或普通浏览器连接你自己托管的 `dsh web`。
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）的社区开源**移动壳**：一个轻薄的 WebView 应用，把你的手机连接到你自己托管的 `dsh web` 主机；配套一个令牌反代，把主机安全地暴露到局域网。
+> **非 DeepSeek 官方产品。** 本项目是独立社区项目，遵循 MIT License。
 
-> **非 DeepSeek 官方产品。** 这是基于 MIT 许可上游构建的社区配套客户端。harness 本体从不在手机上运行：所有工具执行（shell、文件、终端、LSP……）都留在你的主机上，因此移动版**天然与桌面 Web 版功能一致**。
+## 特性
 
-## 仓库内容
+- Android / iOS 轻量移动壳，直接加载主机提供的原版 DSH Web UI。
+- 浏览器 Web 模式，无需安装 App 也可扫码配对使用。
+- `dsh-remote` 认证反向代理：设备会话、一次性配对码、WebSocket 鉴权与同源限制。
+- iOS 原生键盘 viewport 适配、移动 Drawer / Settings / Composer 交互优化。
+- DSH Compatibility Layer：集中管理上游 UI contract，并支持候选版本升级审计。
+- Android、iOS、Web 产物由 GitHub Releases 统一发布。
 
-| 路径 | 说明 |
-|---|---|
-| [`app/`](app/) | Capacitor 8 双端壳：配对启动页（主机地址 + 设备会话，可记忆），随后 WebView 直接加载主机伺服的原版前端——App 与主机版本永不脱节 |
-| [`proxy/`](proxy/) | `dsh-remote`：零依赖 Node ≥20 反代。`dsh web` 保持 loopback（上游刻意禁止绑 `0.0.0.0`），代理负责网络可达、逐请求（含 WebSocket 握手）的常量时间令牌门，并直接伺服启动页（Web 模式，ADR-0007） |
-| [`scripts/`](scripts/) | 一键安全局域网启动与验证工具（启动页回归、真实 dsh HTTP/HTTPS/WSS 代理矩阵、CDP 驱动的 Android 端到端） |
-| [`docs/`](docs/) | 架构分析、可行性研究、PoC 实录，以及全部关键决策的 ADR |
+## 架构
 
-移动 UI 插件 `dsh-mobile-ui` 曾以树外客户端插件形式为主机 Web UI 提供移动导航（底部导航栏、会话抽屉），但原公开仓库当前无法访问，已放入 [移动端后移 backlog](docs/10-roadmap-to-release.md#8-androidios-后移-backlog)。在恢复并固定版本前不要按旧链接安装；基础壳和 Web 模式不依赖该插件。
+```text
+Phone / Browser
+      │
+      ▼
+dsh-mobile-shell
+  ├─ Android / iOS WebView
+  └─ Browser launcher
+      │
+      ▼
+dsh-remote (authenticated proxy)
+      │
+      ▼
+dsh web (loopback only)
+      │
+      ▼
+DeepSeek Harness / tools / workspace
+```
 
-## Web 产物：给桌面端或外部主机使用
+Harness 本体、Shell、文件访问、工具执行和模型调用都留在主机上。移动端只负责连接、认证与移动体验适配。
 
-Web 集成与 Capacitor 工程隔离。根目录脚本只打包运行所需的 Node 代理、启动页和二维码模块，不包含 `app/android`、`app/ios`、原生依赖或开发工具：
+## 快速开始
+
+### 1. 主机要求
+
+- Node.js 20 或更高版本
+- 可正常运行的 DeepSeek Harness / `dsh web`
+- 手机与主机位于可信局域网、Tailscale 等私有网络；公网部署应使用可信 TLS
+
+### 2. 一键启动局域网模式
 
 ```sh
+git clone <repository-url>
 cd dsh-mobile-shell
-npm run package:web
-# 产物：dist/web/
-npm run verify:web
+node scripts/start-lan.mjs
 ```
 
-`dist/web/web-artifact.json` 是稳定的集成契约，声明 `proxy`、`launcher` 和 `pairing` 三个入口以及格式版本。桌面端只读取这个 manifest；因此本仓库内部可以继续调整源码目录，桌面端不需要跟着改路径。发布时可直接分发目录，或打成压缩包：
+脚本会启动 loopback 上的 `dsh web` 与认证代理，并打印一次性配对二维码。手机扫描二维码并确认后即可进入 Harness。
+
+如果主机存在多个局域网地址，可显式指定：
 
 ```sh
-tar -czf dist/dsh-mobile-shell-v1.1.1-web.tar.gz -C dist/web .
+DSH_LAN_IP=<private-lan-ip> node scripts/start-lan.mjs
 ```
 
-外部主机只需自行启动 loopback 上的 `dsh web`，再启动产物中的代理；两者是独立进程：
+### 3. 使用 App
+
+- **Android**：从当前仓库的 **Releases** 页面下载 APK。
+- **iOS**：Releases 提供 unsigned IPA；真机安装仍需要你自己的签名、侧载工具或 Xcode。
+- **浏览器**：直接扫描主机终端显示的二维码，无需安装 App。
+
+已经配对的设备会保存受限设备凭据，主令牌不会写入浏览器 URL 或普通 Web Storage。
+
+## 手动启动
+
+需要自行管理进程时，可以分别启动 Harness 与代理：
 
 ```sh
 npx @deepseek-ai/dsh web --port 3080
+
 DSH_REMOTE_TOKEN="$(openssl rand -hex 16)" \
 DSH_TARGET_PORT=3080 \
-node dist/web/start.mjs
+node proxy/dsh-remote.mjs
 ```
 
-默认代理监听 `0.0.0.0:3081`，会提供 Web 启动页、一次性配对码和二维码所需的配对 URL。可用 `DSH_LISTEN_HOST`、`DSH_LISTEN_PORT`、`DSH_TARGET_HOST`、`DSH_TARGET_PORT` 覆盖地址；公网使用时还应同时配置 `DSH_TLS_CERT`、`DSH_TLS_KEY` 和可信的 `DSH_PUBLIC_URL`。明文 HTTP 只适用于可信局域网或组网网络，不要做端口转发。
+默认情况下：
 
-桌面端集成示例：先在本仓库生成 `dist/web`，再在 `dsh-desktop` 中执行 `DSH_MOBILE_SHELL_WEB_ROOT=/绝对路径/dsh-mobile-shell/dist/web pnpm run build`。Electron 安装包只携带这一份 Web 产物，Android/iOS 工程仍属于本仓库的独立发布面。
+- `dsh web` 保持 loopback；
+- `dsh-remote` 对 HTTP 与 WebSocket 请求执行认证；
+- 明文 HTTP 只适合可信私有网络；
+- 公网部署应配置真实 CA 签发的 TLS 证书。
 
-## 版本号
+代理完整配置见 [`proxy/README.md`](proxy/README.md)。
 
-当前项目版本为 `1.1.1`，唯一来源是根目录 `package.json`。代理包、Capacitor 包、Android 的 `versionName`、iOS 的 `MARKETING_VERSION` 和 Web 产物 manifest 都会与它校验一致：
+## 从源码构建
+
+安装 JavaScript 依赖：
+
+```sh
+npm --prefix app install
+```
+
+Android：
+
+```sh
+cd app/android
+./gradlew assembleDebug
+```
+
+iOS 需要 macOS + Xcode：
+
+```sh
+xcodebuild \
+  -project app/ios/App/App.xcodeproj \
+  -scheme App \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  build
+```
+
+构建依赖与离线 iOS SPM 说明见 [`docs/02-build-and-dependencies.md`](docs/02-build-and-dependencies.md) 与 [ADR-0005](docs/decisions/ADR-0005-ios-vendored-capacitor-spm.md)。
+
+## 兼容性与升级
+
+当前 Stable 为 **v1.1.1**。该版本已完成 DSH `0.1.0-rc.8` 的真实运行与 iOS 真机兼容验证。
+
+上游 DSH 使用 CSS Modules 和内部 UI contract，升级不能只改一个 npm 版本。项目提供：
+
+```sh
+npm run audit:dsh-compat
+```
+
+候选版本必须经过静态 contract audit、独立 Candidate Host、浏览器运行验证、CI 与必要的真机 Gate 后才能提升为 Stable。维护流程见 [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md)。
+
+## 已知问题
+
+当前非阻断遗留问题集中记录在 [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)。其中包括 iOS 成功发送消息后软件键盘不会自动收起的问题。
+
+不要通过新增第二套键盘 resize / scroll 补偿绕过该问题；iOS 稳定架构约束见 [`IOS-STABLE-BASELINE.md`](IOS-STABLE-BASELINE.md)。
+
+## 安全
+
+`dsh web` 能访问主机上的高权限工具，因此不要直接暴露到公网。
+
+- 保持 DSH 本体监听 loopback。
+- 使用 `dsh-remote` 作为认证边界。
+- 不要把主令牌写进仓库、截图、URL 或前端代码。
+- 明文 HTTP 只用于可信私有网络。
+- 公网访问必须使用可信 TLS，并按最小权限原则部署。
+
+安全模型、漏洞报告方式和部署注意事项见 [`SECURITY.md`](SECURITY.md)。
+
+## 仓库结构
+
+| 路径 | 说明 |
+|---|---|
+| [`app/`](app/) | Capacitor Android / iOS 移动壳 |
+| [`proxy/`](proxy/) | `dsh-remote` 认证反向代理 |
+| [`scripts/`](scripts/) | 启动、打包、验证与兼容性审计脚本 |
+| [`compat/`](compat/) | DSH UI compatibility contract |
+| [`docs/`](docs/) | 架构、ADR、历史实施记录与升级文档 |
+
+## 开发与发布
+
+贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+版本号以根目录 `package.json` 为唯一来源，并同步校验 Android、iOS、Proxy 与 Web artifact：
 
 ```sh
 npm run verify:version
 npm run package:web
+npm run verify:web
 ```
 
-发布标签统一使用 `v<版本号>` 格式；发布前可用 `node scripts/verify-version.mjs v1.1.1` 显式校验。推送匹配标签后会自动构建并发布 Android、iOS 和 Web 三类产物。已有历史标签不回写。
-
-## 快速开始：启动 / 扫码 / 确认
-
-推荐只执行这一条命令；它会自动启动 loopback 上的 `dsh web` 和局域网代理，选择一个私有局域网 IPv4，生成本次运行专用的随机主令牌，并打印离线二维码：
-
-```sh
-node scripts/start-lan.mjs
-```
-
-然后只需三个步骤：
-
-1. **启动**：在电脑上运行上面的命令，并保持终端运行。
-2. **扫码**：手机与电脑连接同一 Wi-Fi，扫描终端二维码。
-3. **确认**：手机浏览器点击一次“确认配对并连接”，直接进入 Harness。
-
-扫码场景不需要输入 IP、配对码或令牌。脚本拒绝公网 IP、`0.0.0.0` 和继承的公网/TLS 配置；如果电脑有多个局域网地址，可显式指定：`DSH_LAN_IP=192.168.1.23 node scripts/start-lan.mjs`。明文 HTTP 仍只适用于可信局域网，不要做路由器端口转发。
-
-高级模式才需要分别启动主机与代理：
-
-```sh
-npx @deepseek-ai/dsh web --port 3080
-DSH_REMOTE_TOKEN=$(openssl rand -hex 16) node proxy/dsh-remote.mjs
-```
-
-**手机**（同一 Wi-Fi）——也可以使用 App：
-
-- **Web 模式（零安装，ADR-0007）**：扫描终端二维码后，浏览器会打开启动页、清理扫码 fragment 并预填配对码；确认一次即可进入。主令牌全程不离开电脑。
-- **App**：安装壳，填 `http://<电脑局域网IP>:3081` 与配对码（"令牌连接"保留为高级入口）。记忆主机后一键重连。
-  - **Android**：从 [Releases](https://github.com/citrusli2026/dsh-mobile-shell/releases) 直接下载 APK 安装。
-  - **iOS**：从源码构建（见下）或等待 TestFlight——苹果没有免签名的直接安装路径。
-
-> **Web 验证状态（2026-08-15）：已通过。** 已对真实发布版 `dsh web` 完成 HTTP 28/28、HTTPS/WSS 28/28 自动化矩阵；Playwright Chromium/WebKit 及移动 Chromium/WebKit 均完成“打开二维码深链 → 明确确认 → 进入 DeepSeek Harness → 刷新后保持会话”，本机安装的 Google Chrome 额外通过 2/2。完整记录见 [Web 安全加固与验证实录](docs/09-web-security-hardening.md)。本结论不包含实体 Safari 与尚待下一阶段验证的移动端 App。
-
-## 从源码构建
-
-```sh
-git clone https://github.com/citrusli2026/dsh-mobile-shell.git
-cd dsh-mobile-shell/app && npm install
-
-# Android（JDK 17–21；Gradle 下载已配好国内镜像，见文档）
-cd android && ./gradlew assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
-
-# iOS（需要 Xcode；完全离线——Capacitor 的 SPM 二进制已 vendor 并通过
-# sha256 核验，见 docs/decisions/ADR-0005）
-xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
-  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath ios/build build
-```
-
-下载慢？npm / Gradle / Maven / Node 头文件的国内镜像配置汇总在 [docs/02-build-and-dependencies.md](docs/02-build-and-dependencies.md) 第 4 节。
-
-## 安全模型——暴露之前必读
-
-- 代理对每个请求和每次 WS 握手强制校验；未配置主令牌 `DSH_REMOTE_TOKEN` 时拒绝启动。配对码签发 30 天有效的签名设备会话：浏览器只得到 HttpOnly Cookie，主令牌不会进入响应正文、URL 或浏览器存储；设备会话不能继续签发配对码。未授权访客只能看到启动页，跨源的已认证 API/WS 请求也会拒绝。
-- **默认明文 HTTP**：仅限可信局域网或 Tailscale 等组网内使用。公网暴露请启用 TLS，但**证书由你提供**（`DSH_TLS_CERT`/`DSH_TLS_KEY`——真实 CA 签发的域名证书；自签证书在原生 WebView 里不可用，见 ADR-0006）。
-- Android/iOS 工程因此放开了明文开关；TLS 落地时必须同步收回（ADR-0004）。
-
-## 路线图
-
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| 1 | PoC：壳 + 令牌代理，双端模拟器局域网验证 | ✅ 已完成（[实录](docs/05-phase1-poc.md)） |
-| 2 | 配对码、代理可选 TLS | ✅ 已完成（[实录](docs/06-phase2-pairing-tls.md)） |
-| Web | 浏览器零安装、设备会话与安全加固 | ✅ 已完成并通过端到端验证（[实录](docs/09-web-security-hardening.md)） |
-| 3 | Web 二维码、完整设备生命周期、管理/部署体验与国际化 | Web-first 进行中——[路线图](docs/10-roadmap-to-release.md) |
-| 4 | Android/iOS 构建、签名、移动 UI 与真机发行门禁 | 后移——[真机清单](docs/07-real-device-verification.md) |
-| 5 | 推送、完整离线壳等高成本体验功能 | Web 稳定后评估 |
-
-## 文档
-
-- [docs/README.md](docs/README.md)——总索引：项目分析、构建与依赖指南、可行性研究、PoC 实录
-- [Web 二维码配对实录](docs/11-web-qr-pairing.md)——离线二维码、扫码深链与验证结果
-- [docs/decisions/](docs/decisions/)——ADR-0001…0009，每个关键决策一份
+正式版本使用 `v<semver>` tag。变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 许可证
 
-[MIT](LICENSE)。vendored 组件（如 `app/ios/vendor/` 下的 Capacitor iOS 二进制）保留各自许可证。DeepSeek Harness 本体由 DeepSeek AI 以 MIT 许可发布。
+[MIT](LICENSE)。Vendored 组件保留各自许可证。DeepSeek Harness 本体由其上游项目独立维护与授权。

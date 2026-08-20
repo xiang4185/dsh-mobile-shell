@@ -1,6 +1,8 @@
-# 07 真机验证清单（阶段 3 入口）
+# 07 早期真机验证清单（历史记录）
 
-状态：**模拟器预演已过（见第 6 节），移动 App 优先级已后移，真机项保留待执行**。本清单用于在真实手机（而非模拟器）上验收 v0.2.0。模拟器已覆盖的项在 [05](05-phase1-poc.md)、[06](06-phase2-pairing-tls.md) 与本文件第 6 节；真机要回答的是：真实无线网络的时延与抖动、系统 WebView 差异、后台/熄屏重连、触控与键盘交互。当前先按 [10](10-roadmap-to-release.md) 完成 Web-first 路线；恢复移动迭代后再扩展设备吊销、退出/忘记、短 TTL 和覆盖升级 journey。在此之前，本文未勾选项仍不得视为通过。
+> **Archived for historical context.** 本清单原用于 v0.2.0 阶段的真机验收设计，后续项目已经完成 Android/iOS Stable 发布，不能再把这里的未勾选项理解为当前版本状态。当前 iOS 真机 Gate、稳定约束与已验收行为请以 [`../IOS-STABLE-BASELINE.md`](../IOS-STABLE-BASELINE.md) 为准；当前遗留问题见 [`../KNOWN-ISSUES.md`](../KNOWN-ISSUES.md)。
+
+下文保留早期验证方法和测试维度，便于理解项目历史与复用测试思路；其中版本号、插件状态和发行方式均属于当时环境。
 
 ## 0. 前置条件
 
@@ -28,7 +30,7 @@ DSH_REMOTE_TOKEN=<上一步的令牌> node proxy/dsh-remote.mjs
 Web 模式（v0.3.0 起）无需安装：手机浏览器直接打开 `http://<电脑IP>:3081/` 即是启动页，见 A0 与 [08](08-web-mode.md)。App 安装路径：
 
 - **Android**：手机浏览器打开 Release 资产链接（国内加前缀 `https://ghproxy.net/`）：
-  `https://github.com/citrusli2026/dsh-mobile-shell/releases/download/v0.2.0/dsh-mobile-shell-v0.2.0-android-debug.apk`
+  历史 `v0.2.0` Release 中的 Android debug APK（该条仅用于复现实录；新验证应使用当前 Latest Release）
   下载后安装（允许"未知来源"）；或电脑 `adb install`。
 - **iOS**：无免签直装路径。开发者账号用 Xcode 直接构建到真机（`app/ios`，`generic/platform=iOS`，选择自己的签名团队），或等 TestFlight（阶段 3 事项）。iOS 真机项标 E 系列。
 
@@ -82,11 +84,11 @@ A 全过 + B 全过（允许 B4 记录性能数据）；C/D/E 的 ❌ 项各开�
 | 启动页提示"连不上主机：超时" | 手机与电脑是否同网段；电脑防火墙是否放行 3081；`curl http://<电脑IP>:3081/healthz` 用手机浏览器验证 |
 | 配对码一直 403 | 码已过期或被用过；回主机签发新码 |
 | 模型回合报错 | 主机未配 `DEEPSEEK_API_KEY`，与 App 无关；桌面浏览器复现确认 |
-| 看不到底部导航/操作条 | 当前先确认移动端 backlog 是否已恢复；完成后再用 `dsh plugin --profile web ls` 确认固定版本与移动断点 |
+| 看不到底部导航/操作条 | 本项属于早期树外插件方案；当前版本请先对照 `IOS-STABLE-BASELINE.md` 和实际 DSH 插件/模块 UI contract |
 
 ## 6. 模拟器预演记录（2026-08-14）
 
-真机执行前的最后一轮模拟器端到端复验。环境：Android 15 模拟器（AVD `SubScope-Pixel6-API35`）；主机 `dsh web` 0.1.0-rc.6（127.0.0.1:3090）+ dsh-remote（0.0.0.0:3091，配对码模式）；App 为 v0.2.0 debug APK（本地构建，与 Release 同一产物链）。模拟器经**局域网 IP**（192.168.1.26）访问主机，与真机走同一网络路径；UI 驱动用 `adb forward` + CDP（`scripts/cdp-android-e2e.py`）。
+真机执行前曾进行一轮 Android 15 模拟器端到端复验。主机使用独立 Candidate 端口运行 `dsh web` 与 dsh-remote，App 为当时的 v0.2.0 debug APK（与 Release 同一产物链）。模拟器经**私有局域网地址**访问主机，与真机走同一网络路径；UI 驱动使用 `adb forward` + CDP（`scripts/cdp-android-e2e.py`）。这里保留的是历史验证方法，不是当前版本的固定端口或设备要求。
 
 | 清单项 | 结果 | 证据 |
 |---|---|---|

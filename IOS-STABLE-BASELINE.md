@@ -285,7 +285,7 @@ Drawer 本身保持 `z-index: 1000`，DSH body portal menu `1100`，否则 Works
 - textarea 的圆角由 Composer card 表达；输入 textarea 本体保持可靠 hitbox。
 - `+` 和发送按钮保留蓝色圆形视觉。
 - 权限按钮不再显示额外圆圈，但 **44pt 隐形点击区必须保留**。
-- 模型选择保留胶囊视觉。
+- 模型选择与标准模式不再绘制额外装饰胶囊/圆圈；真实约 44pt 点击区仍保留。
 
 不要为了“看起来更圆”重新把 hit target 改回小圆形。
 

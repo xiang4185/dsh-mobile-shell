@@ -16,7 +16,7 @@
 node scripts/start-lan.mjs
 ```
 
-脚本自动启动 loopback 上的 `dsh web` 和本代理，选择一个私有局域网 IPv4，生成仅存于本次进程的随机主令牌，并打印离线 QR。手机与电脑连同一 Wi-Fi 后只需“启动 → 扫码 → 点击确认配对并连接”，不输入 IP、配对码或令牌。脚本拒绝公网地址、`0.0.0.0`、`DSH_PUBLIC_URL` 和 TLS 配置；多网卡时可用 `DSH_LAN_IP=192.168.1.23` 指定 Wi-Fi 地址。
+脚本自动启动 loopback 上的 `dsh web` 和本代理，选择一个私有局域网 IPv4，生成仅存于本次进程的随机主令牌，并打印离线 QR。手机与电脑连同一 Wi-Fi 后只需“启动 → 扫码 → 点击确认配对并连接”，不输入 IP、配对码或令牌。脚本拒绝公网地址、`0.0.0.0`、`DSH_PUBLIC_URL` 和 TLS 配置；多网卡时可用 `DSH_LAN_IP=<private-lan-ip>` 指定 Wi-Fi 地址。
 
 ### 高级：分开启动主机与代理
 
@@ -28,7 +28,7 @@ npx @deepseek-ai/dsh web --port 3080
 DSH_REMOTE_TOKEN=<token> node proxy/dsh-remote.mjs
 # dsh-remote: http://0.0.0.0:3081 -> http://127.0.0.1:3080 (token required)
 # dsh-remote: pairing code 847291 — single use, expires in 10 min
-# dsh-remote: pairing link http://192.168.1.10:3081/launch#pair=847291
+# dsh-remote: pairing link http://<private-lan-ip>:3081/launch#pair=<pair-code>
 # 随后在交互终端显示二维码
 ```
 
@@ -113,7 +113,7 @@ Run this from the repository root:
 node scripts/start-lan.mjs
 ```
 
-The helper starts `dsh web` on loopback and this proxy, selects one private LAN IPv4, creates a fresh in-memory master token, and prints an offline QR. With the phone and computer on the same Wi-Fi, the flow is simply “start → scan → tap confirm”; there is no IP, pairing-code, or token entry. The helper rejects public addresses, `0.0.0.0`, `DSH_PUBLIC_URL`, and TLS configuration. For multiple interfaces, set `DSH_LAN_IP=192.168.1.23` to select the Wi-Fi address.
+The helper starts `dsh web` on loopback and this proxy, selects one private LAN IPv4, creates a fresh in-memory master token, and prints an offline QR. With the phone and computer on the same Wi-Fi, the flow is simply “start → scan → tap confirm”; there is no IP, pairing-code, or token entry. The helper rejects public addresses, `0.0.0.0`, `DSH_PUBLIC_URL`, and TLS configuration. For multiple interfaces, set `DSH_LAN_IP=<private-lan-ip>` to select the Wi-Fi address.
 
 ### Advanced: start the host and proxy separately
 

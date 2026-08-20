@@ -1,6 +1,6 @@
 # 04 移动 UI 插件（dsh-mobile-ui）：实施与验证
 
-> 分发状态（2026-08-15）：本文是历史实现实录，原外部仓库当前无法访问，插件暂不可复现安装。恢复源码、归仓和固定版本已放入 [10 的移动端后移 backlog](10-roadmap-to-release.md#8-androidios-后移-backlog)。
+> **历史记录。** 本文记录早期树外 `dsh-mobile-ui` 插件方案。当前 v1.1.1 的 iOS 移动适配已经由主仓库维护，未来插件/模块兼容按 [`DSH-UPGRADE-COMPAT.md`](DSH-UPGRADE-COMPAT.md) 与当前 [`Roadmap`](10-roadmap-to-release.md) 处理。本文不作为当前安装说明。
 
 本文记录阶段 3"移动体验"缺口的首个交付：树外客户端插件 `dsh-mobile-ui` 的实现内容与端到端验证结果。决策依据见 [ADR-0003](decisions/ADR-0003-mobile-ui-out-of-tree-plugin.md)；上游契约论断均标注文件路径，可复核。
 

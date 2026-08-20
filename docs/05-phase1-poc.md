@@ -44,17 +44,17 @@ App 启动页填 `http://<主机局域网IP>:3081` + 令牌即可连接。真机
 | 3 | `GET /?token=正确` | 302 + `Set-Cookie: dsh_token=…; HttpOnly; SameSite=Lax` |
 | 4 | 携 Cookie 取 `/` | 200，返回 `<title>DeepSeek Harness</title>` |
 | 5 | `POST /api/...` 无 Cookie | 401 |
-| 6 | 经局域网 IP（192.168.1.26）携 Cookie | 200（非 loopback 路径） |
+| 6 | 经局域网 IP（`<private-lan-ip>`）携 Cookie | 200（非 loopback 路径） |
 | 7 | WS 握手无令牌 / 携 Cookie | 403 / **101**，`session/subscribed` 真实事件流经隧道 |
 | 8 | 认证 `/api` POST（伪造 LAN Origin） | 404 而非 403——Host/Origin 改写使上游围栏按 loopback 通过 |
 | 9 | Android 模拟器：APK 安装→启动页渲染 | 截图 `android-launcher.png` |
-| 10 | Android 模拟器：CDP 自动配对→落到 `http://192.168.1.26:3081/`，标题 `DeepSeek Harness`，工作区选择器可见 | 截图 `android-dsh-ui.png` |
+| 10 | Android 模拟器：CDP 自动配对→落到 `http://<private-lan-ip>:3081/`，标题 `DeepSeek Harness`，工作区选择器可见 | 截图 `android-dsh-ui.png` |
 | 11 | iOS 模拟器：BUILD SUCCEEDED→安装→启动页渲染（iPhone 17 Pro, iOS 26.5） | 截图 `ios-launcher.png` |
 | 12 | iOS 模拟器 Safari（同 WebKit）：`?token=` 全流程→dsh UI 展示 | 截图 `ios-safari-dsh.png` |
 
 ## 4. 过程中发现并解决的问题（本阶段实际踩坑记录）
 
-1. **Gradle 守护进程被全局配置钉在 JDK 25**（`~/.gradle/gradle.properties` 的 `org.gradle.java.home`），Gradle 8.14.3 的 Groovy 无法解析（class file 69）。不改用户全局配置，命令行 `-Dorg.gradle.java.home=<JDK21>` 覆盖。
+1. **某些开发机可能通过全局 Gradle 配置固定了不兼容的 JDK**（例如 `~/.gradle/gradle.properties` 中的 `org.gradle.java.home`）。遇到 Groovy / class-file 版本错误时，可先用命令行 `-Dorg.gradle.java.home=<compatible-jdk>` 局部覆盖，而不是修改项目代码。
 2. **Android 启动页 fetch 报 "Failed to fetch"**：Capacitor 8 默认 `androidScheme: https`，https 源页面抓 http 接口被混合内容拦截。改为 `androidScheme: 'http'`。
 3. **跨源导航被交给系统浏览器**：Capacitor Android 默认把非本机源导航抛给 Chrome。`server.allowNavigation: ['*']` 放行（信任边界在代理令牌门）。
 4. **iOS SPM 远程解析无限挂起**：官方包是 binaryTarget 包，xcframework zip 走 github.com Releases；xcodebuild 侧不可复现地停在 `waitForRemoteSourcePackagesToFinishLoading`。本地化 vendor + 校验和后构建全离线通过（ADR-0005）。注意：**并行重复的 xcodebuild 会在同一 DerivedData 上互锁**，复现阶段曾因此长时间"假死"。

@@ -2,138 +2,177 @@
 
 English | [中文](README.zh.md)
 
-> **iOS maintainers:** read [`IOS-STABLE-BASELINE.md`](IOS-STABLE-BASELINE.md) and [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) before changing iOS code. They record the current 1.1.1 Stable, the original 1.1.0 rollback anchor, locked keyboard/Settings/Drawer/bootstrap invariants, and the regression gate.
+`dsh-mobile-shell` is a community mobile client and authenticated remote-access layer for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It does not run Harness on the phone. Android, iOS, and browser clients connect to a self-hosted `dsh web` instance.
 
-A community, open-source **mobile shell** for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) — a thin WebView app that connects your phone to your own self-hosted `dsh web` host, plus the token-guard reverse proxy that exposes that host to your LAN safely.
+> **Not an official DeepSeek product.** This is an independent community project released under the MIT License.
 
-> **Not an official DeepSeek product.** This is a companion client built on the MIT-licensed upstream. The harness itself never runs on your phone: every tool execution (shell, files, terminal, LSP…) stays on your host, so the mobile app keeps **feature parity** with the desktop web UI by construction.
+## Features
 
-## What's in this repo
+- Lightweight Android and iOS shells that load the original DSH Web UI served by the host.
+- Browser mode with QR pairing and no app installation required.
+- `dsh-remote` authenticated reverse proxy with device sessions, one-time pairing codes, WebSocket authentication, and origin checks.
+- Native iOS keyboard viewport handling plus mobile Drawer, Settings, and Composer adaptations.
+- DSH Compatibility Layer for auditing upstream UI-contract changes before promotion.
+- Android, iOS, and Web artifacts published through GitHub Releases.
 
-| Path | What it is |
-|---|---|
-| [`app/`](app/) | Capacitor 8 shell for Android & iOS: a pairing launcher (host + scoped device session, remembered), then the WebView loads the exact frontend your host serves — app and host versions never diverge |
-| [`proxy/`](proxy/) | `dsh-remote`: a zero-dependency Node ≥20 reverse proxy. `dsh web` stays on loopback (upstream deliberately refuses `0.0.0.0`); the proxy owns network reachability, a constant-time token gate for every HTTP request and WebSocket handshake, and serves the launcher page itself (web mode, ADR-0007) |
-| [`scripts/`](scripts/) | One-command secure LAN launcher plus verification tooling (launcher regression, real-dsh HTTP/HTTPS/WSS proxy matrix, and CDP-driven Android E2E) |
-| [`docs/`](docs/) | Analysis, feasibility study, PoC runbook, and every design decision as ADRs |
+## Architecture
 
-The `dsh-mobile-ui` companion previously supplied mobile navigation chrome (bottom bar and session drawer) as an out-of-tree client plugin, but its former public repository is currently unavailable. Its in-repo recovery is now in the [deferred mobile backlog](docs/10-roadmap-to-release.md#8-androidios-后移-backlog). Do not follow old installation links until a version is pinned; the base shell and Web mode do not depend on it.
+```text
+Phone / Browser
+      │
+      ▼
+dsh-mobile-shell
+  ├─ Android / iOS WebView
+  └─ Browser launcher
+      │
+      ▼
+dsh-remote (authenticated proxy)
+      │
+      ▼
+dsh web (loopback only)
+      │
+      ▼
+DeepSeek Harness / tools / workspace
+```
 
-## Web artifact: for desktop and external hosts
+Harness, shell/file access, tool execution, and model calls remain on the host. The mobile layer handles connectivity, authentication, and mobile UX adaptation.
 
-The Web integration is isolated from the Capacitor projects. The root package script produces only the Node proxy, launcher, and QR module required at runtime; `app/android`, `app/ios`, native dependencies, and development tools are excluded:
+## Quick start
+
+### 1. Host requirements
+
+- Node.js 20 or newer
+- A working DeepSeek Harness / `dsh web` installation
+- A trusted LAN or private overlay network such as Tailscale; public deployments should use trusted TLS
+
+### 2. Start on a trusted LAN
 
 ```sh
+git clone <repository-url>
 cd dsh-mobile-shell
-npm run package:web
-# artifact: dist/web/
-npm run verify:web
+node scripts/start-lan.mjs
 ```
 
-`dist/web/web-artifact.json` is the integration contract. It declares the `proxy`, `launcher`, and `pairing` entrypoints plus the artifact format version. Desktop consumers read the manifest instead of depending on this repository's source layout, so source changes can remain local to this repository. The directory can be released directly or archived:
+The launcher starts `dsh web` on loopback, starts the authenticated proxy, and prints a one-time pairing QR code. Scan it on the phone and explicitly confirm the pairing.
+
+If the host has multiple private addresses:
 
 ```sh
-tar -czf dist/dsh-mobile-shell-v1.1.1-web.tar.gz -C dist/web .
+DSH_LAN_IP=<private-lan-ip> node scripts/start-lan.mjs
 ```
 
-An external host starts `dsh web` on loopback and the artifact proxy as separate processes:
+### 3. Use a client
+
+- **Android:** download the APK from this repository's **Releases** page.
+- **iOS:** Releases include an unsigned IPA; device installation still requires your own signing, a sideloading tool, or Xcode.
+- **Browser:** scan the QR code printed by the host; no app installation is required.
+
+Paired clients receive a scoped device credential. The master token is not stored in browser URLs or normal Web Storage.
+
+## Manual startup
+
+To manage the processes yourself:
 
 ```sh
 npx @deepseek-ai/dsh web --port 3080
+
 DSH_REMOTE_TOKEN="$(openssl rand -hex 16)" \
 DSH_TARGET_PORT=3080 \
-node dist/web/start.mjs
+node proxy/dsh-remote.mjs
 ```
 
-The proxy listens on `0.0.0.0:3081` by default and serves the Web launcher, one-time pairing codes, and pairing URLs. Override it with `DSH_LISTEN_HOST`, `DSH_LISTEN_PORT`, `DSH_TARGET_HOST`, and `DSH_TARGET_PORT`. For public access also configure `DSH_TLS_CERT`, `DSH_TLS_KEY`, and a trusted `DSH_PUBLIC_URL`. Plain HTTP is for a trusted LAN or mesh network only; do not port-forward it.
+By default:
 
-For desktop integration, build `dist/web` in this repository first, then run `DSH_MOBILE_SHELL_WEB_ROOT=/absolute/path/dsh-mobile-shell/dist/web pnpm run build` in `dsh-desktop`. The Electron installer carries only this Web artifact; Android/iOS remain a separate release surface of this repository.
+- `dsh web` stays on loopback;
+- `dsh-remote` authenticates HTTP and WebSocket traffic;
+- plain HTTP is intended only for trusted private networks;
+- public deployments should use a certificate issued by a trusted CA.
 
-## Versioning
+See [`proxy/README.md`](proxy/README.md) for the full proxy configuration.
 
-The current project version is `1.1.1`, declared once in the root `package.json`. The proxy package, Capacitor package, Android `versionName`, iOS `MARKETING_VERSION`, and Web artifact manifest are checked against it:
+## Build from source
+
+Install the app dependencies:
+
+```sh
+npm --prefix app install
+```
+
+Android:
+
+```sh
+cd app/android
+./gradlew assembleDebug
+```
+
+iOS requires macOS and Xcode:
+
+```sh
+xcodebuild \
+  -project app/ios/App/App.xcodeproj \
+  -scheme App \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  build
+```
+
+See [`docs/02-build-and-dependencies.md`](docs/02-build-and-dependencies.md) and [ADR-0005](docs/decisions/ADR-0005-ios-vendored-capacitor-spm.md) for build dependencies and the vendored iOS SPM setup.
+
+## Compatibility and upgrades
+
+The current Stable release is **v1.1.1**. It has been validated against DSH `0.1.0-rc.8`, including real iOS-device testing.
+
+DSH uses CSS Modules and internal UI contracts, so an upstream upgrade is not treated as a simple package-version bump. The repository provides a compatibility audit:
+
+```sh
+npm run audit:dsh-compat
+```
+
+Candidate DSH versions must pass the static contract audit, an isolated Candidate Host, runtime browser checks, CI, and any relevant true-device gates before promotion. See [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md).
+
+## Known issues
+
+Non-blocking known issues are tracked in [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md). One current issue is that the iOS software keyboard remains visible after a successful message send.
+
+Do not work around this by introducing a second keyboard resize/scroll driver. The stable iOS invariants are documented in [`IOS-STABLE-BASELINE.md`](IOS-STABLE-BASELINE.md).
+
+## Security
+
+`dsh web` can reach high-privilege tools on the host. Do not expose it directly to the public Internet.
+
+- Keep DSH itself bound to loopback.
+- Put `dsh-remote` at the authentication boundary.
+- Never commit master tokens or put them in screenshots, URLs, or frontend code.
+- Use plain HTTP only on trusted private networks.
+- Use trusted TLS and least-privilege deployment practices for public access.
+
+See [`SECURITY.md`](SECURITY.md) for the security model, vulnerability-reporting guidance, and deployment notes.
+
+## Repository layout
+
+| Path | Purpose |
+|---|---|
+| [`app/`](app/) | Capacitor Android / iOS mobile shells |
+| [`proxy/`](proxy/) | `dsh-remote` authenticated reverse proxy |
+| [`scripts/`](scripts/) | Startup, packaging, verification, and compatibility scripts |
+| [`compat/`](compat/) | DSH UI compatibility contract |
+| [`docs/`](docs/) | Architecture, ADRs, historical implementation notes, and upgrade docs |
+
+## Development and releases
+
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before contributing.
+
+The root `package.json` is the version source of truth. Android, iOS, Proxy, and the Web artifact are checked for consistency:
 
 ```sh
 npm run verify:version
 npm run package:web
+npm run verify:web
 ```
 
-Release tags use the `v<version>` form; validate one explicitly with `node scripts/verify-version.mjs v1.1.1` before publishing. Pushing a matching tag runs the Android, iOS, and Web builds and publishes all three assets. Existing historical tags are not rewritten.
-
-## Quick start: start / scan / confirm
-
-Run one command on the computer. It starts `dsh web` on loopback and the LAN proxy, selects one private LAN IPv4, generates a fresh random master token in memory, and prints an offline QR:
-
-```sh
-node scripts/start-lan.mjs
-```
-
-Then use exactly three steps:
-
-1. **Start**: run the command and keep its terminal open.
-2. **Scan**: connect the phone and computer to the same Wi-Fi, then scan the terminal QR.
-3. **Confirm**: tap “确认配对并连接” once in the phone browser; the Harness opens.
-
-The scan flow requires no IP, pairing-code, or token entry. The helper rejects public IPs, `0.0.0.0`, and inherited public/TLS configuration; if the computer has multiple LAN addresses, select one explicitly with `DSH_LAN_IP=192.168.1.23 node scripts/start-lan.mjs`. Plain HTTP is still for trusted LANs only—do not port-forward it.
-
-Advanced users can start the host and proxy separately:
-
-```sh
-npx @deepseek-ai/dsh web --port 3080
-DSH_REMOTE_TOKEN=$(openssl rand -hex 16) node proxy/dsh-remote.mjs
-```
-
-**On the phone** (same Wi-Fi) — App is also available:
-
-- **Web mode (zero install, ADR-0007)**: scan the terminal QR. The browser opens the launcher, removes the scan fragment, and prefills the short code; confirm once to enter. The master token never leaves your computer.
-- **App**: install the shell, enter `http://<computer-LAN-IP>:3081` and the pairing code (token entry remains as an advanced option). A remembered host gives one-tap reconnect.
-  - **Android**: download the APK from [Releases](https://github.com/citrusli2026/dsh-mobile-shell/releases) and install directly.
-  - **iOS**: build from source (below) or join TestFlight when available — Apple has no direct-install path for unsigned builds.
-
-> **Web verification status (2026-08-15): passed.** The published `dsh web` completed the HTTP 28/28 and HTTPS/WSS 28/28 automated matrices. Playwright Chromium/WebKit plus mobile Chromium/WebKit passed the full flow: open QR deep link → explicit confirmation → land in DeepSeek Harness → reload with the session intact. The installed Google Chrome channel also passed 2/2. See the [Web hardening and verification report](docs/09-web-security-hardening.md). This result does not claim that physical Safari or the mobile app has completed its next verification stage.
-
-## Build from source
-
-```sh
-git clone https://github.com/citrusli2026/dsh-mobile-shell.git
-cd dsh-mobile-shell/app && npm install
-
-# Android (JDK 17–21; Gradle downloads use mirror-friendly config, see docs)
-cd android && ./gradlew assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
-
-# iOS (Xcode; fully offline — the Capacitor SPM binaries are vendored and
-# sha256-verified against upstream, see docs/decisions/ADR-0005)
-xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
-  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath ios/build build
-```
-
-Slow downloads? China-mirror configurations for npm / Gradle / Maven / Node headers are collected in [docs/02-build-and-dependencies.md](docs/02-build-and-dependencies.md) §4.
-
-## Security model — read before exposing anything
-
-- The proxy authenticates every request and WS handshake and refuses to start without the host-only master secret `DSH_REMOTE_TOKEN`. Pairing issues a signed 30-day device session: browsers receive only an HttpOnly cookie, while the master secret never enters a response body, URL, or browser storage. Device sessions cannot mint more pairing codes, and authenticated cross-origin API/WS requests are rejected. Unauthenticated visitors see only the launcher page; disable it with `DSH_LAUNCHER=off` if you prefer a bare 401.
-- **Plain HTTP by default**: use it on trusted LANs or mesh VPNs (Tailscale…) only. For public exposure, TLS is available but **you supply the certificate** (`DSH_TLS_CERT`/`DSH_TLS_KEY` — a domain cert from a real CA; self-signed is unusable in stock WebViews, see ADR-0006).
-- The Android/iOS projects allow cleartext traffic for the LAN case; tighten both switches behind TLS (ADR-0004).
-
-## Roadmap
-
-| Phase | Scope | Status |
-|---|---|---|
-| 1 | PoC: shell + token proxy, LAN verification on both emulators | ✅ done ([report](docs/05-phase1-poc.md)) |
-| 2 | Pairing codes, optional TLS at the proxy | ✅ done ([report](docs/06-phase2-pairing-tls.md)) |
-| Web | Zero-install browser flow, device sessions, and security hardening | ✅ done and E2E verified ([report](docs/09-web-security-hardening.md)) |
-| 3 | Web QR pairing, full device lifecycle, management/deployment UX, and i18n | Web-first, in progress — [roadmap](docs/10-roadmap-to-release.md) |
-| 4 | Android/iOS builds, signing, mobile UI, and physical-device release gates | deferred — [device checklist](docs/07-real-device-verification.md) |
-| 5 | Push, a full offline shell, and other high-cost experience work | evaluate after Web is stable |
-
-## Documentation
-
-- [docs/README.md](docs/README.md) — full index: project analysis, build/dependency guide, feasibility study, PoC runbook
-- [Web QR pairing report](docs/11-web-qr-pairing.md) — offline QR, deep-link behavior, and verification
-- [docs/decisions/](docs/decisions/) — ADR-0001…0009, one per consequential choice
+Stable releases use `v<semver>` tags. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## License
 
-[MIT](LICENSE). Vendored components (e.g. Capacitor's iOS binaries under `app/ios/vendor/`) keep their own licenses. DeepSeek Harness itself is MIT-licensed by DeepSeek AI.
+[MIT](LICENSE). Vendored components retain their own licenses. DeepSeek Harness is maintained and licensed independently by its upstream project.

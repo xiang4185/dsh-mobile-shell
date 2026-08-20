@@ -1,6 +1,6 @@
 # 11 Web 二维码配对：实施与验证记录
 
-状态：**已完成（2026-08-15）**。决策见 [ADR-0009](decisions/ADR-0009-web-qr-pairing.md)。本阶段继续只验证 Web，Android/iOS 优先级已后移。
+状态：**已完成（2026-08-15）**。决策见 [ADR-0009](decisions/ADR-0009-web-qr-pairing.md)。本文记录当时的 Web QR 阶段；其中“移动端后移”只是当时的项目优先级，当前 v1.1.1 已包含 Android/iOS Stable 产物。
 
 ## 1. 用户流程
 
@@ -37,7 +37,7 @@
 | 交互终端 | ✅ 实际输出 ANSI QR；输入 `n` 回车生成新的码和链接 |
 | 真实 dsh HTTP | ✅ 28/28，全矩阵保持通过；`/pair/new` pairing URL 结构与无 token 断言通过 |
 | 真实 dsh HTTPS/WSS | ✅ 28/28，自签测试变体保持通过 |
-| Chromium/WebKit 浏览器 | ✅ 桌面与移动视口共 8/8；深链打开后 URL 从 `…#pair=092792` 清理为 `/launch`，页面只预填并等待确认；确认后进入 DeepSeek Harness；刷新会话保持；重放同一深链提示无效/过期 |
+| Chromium/WebKit 浏览器 | ✅ 桌面与移动视口共 8/8；深链打开后 URL 从 `…#pair=<pair-code>` 清理为 `/launch`，页面只预填并等待确认；确认后进入 DeepSeek Harness；刷新会话保持；重放同一深链提示无效/过期 |
 | 本机 Google Chrome | ✅ 桌面项目 2/2；同一流程通过 |
 | 错误配置 | ✅ `DSH_PUBLIC_URL` 含路径/查询/凭据或非 HTTP(S) 时启动失败 |
 | launcher-off | ✅ `/` 401、`/launch` 404，无 Web QR 链接 |
