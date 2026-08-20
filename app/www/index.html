@@ -299,6 +299,33 @@
   .btn:disabled .spinner { display: block; }
   .btn:disabled .btn__text { opacity: 0.7; }
 
+  /* ── Connection loading state ── */
+  .loading-card {
+    text-align: center;
+    padding: 36px 28px;
+  }
+  .loading-card__spinner {
+    width: 28px; height: 28px;
+    margin: 0 auto 18px;
+    border: 3px solid var(--accent-dim);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .loading-card__title {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .loading-card__host {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-top: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* ── Reduced motion ── */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -325,6 +352,12 @@
       <span class="btn__text">继续连接</span>
     </button>
     <button id="changeBtn" class="btn btn--ghost">更换主机</button>
+  </section>
+
+  <section id="loadingCard" class="card loading-card hidden" aria-live="polite">
+    <div class="loading-card__spinner" aria-hidden="true"></div>
+    <div id="loadingTitle" class="loading-card__title">正在连接…</div>
+    <div id="loadingHost" class="loading-card__host"></div>
   </section>
 
   <div id="picker" class="card">
@@ -378,6 +411,7 @@ const STORE_KEY = 'dsh.connection'
 const FRAGMENT = new URLSearchParams(location.hash.slice(1))
 const QR_PAIR_CODE = FRAGMENT.get('pair')
 const APP_SESSION_TOKEN = FRAGMENT.get('dsh-session')
+const RECONNECT_REQUIRED = FRAGMENT.get('dsh-reconnect') === '1'
 const CLEAN_QUERY = new URLSearchParams(location.search)
 CLEAN_QUERY.delete('token')
 const CLEAN_SEARCH = CLEAN_QUERY.toString()
@@ -389,12 +423,17 @@ if (QR_PAIR_CODE !== null || APP_SESSION_TOKEN !== null || location.search !== C
 
 /* ── Carrier detection ── */
 const IS_APP = typeof window.Capacitor !== 'undefined'
+function nativeSignal(event, detail = {}) {
+  if (!IS_APP) return
+  try {
+    window.webkit?.messageHandlers?.dshNativeSignal?.postMessage({ event, ...detail })
+  } catch (_) { /* native bridge is optional in web mode */ }
+}
 if (IS_APP) {
   // The iPhone input accessory row (previous/next/done) consumes a large strip
   // between DSH's composer and the software keyboard. DSH has one primary
   // composer, so the native accessory navigation is unnecessary here.
   const keyboard = window.Capacitor?.Plugins?.Keyboard
-  keyboard?.setResizeMode?.({ mode: 'native' }).catch(() => {})
   keyboard?.setAccessoryBarVisible?.({ isVisible: false }).catch(() => {})
 }
 if (!IS_APP) {
@@ -457,6 +496,19 @@ function setBusy(busy) {
     if (btn) btn.disabled = busy
   }
 }
+function showLoading(base, title = '正在连接…') {
+  $('savedCard').classList.add('hidden')
+  $('picker').classList.add('hidden')
+  $('loadingCard').classList.remove('hidden')
+  $('loadingTitle').textContent = title
+  $('loadingHost').textContent = base || ''
+}
+function showPairing(message = '') {
+  $('loadingCard').classList.add('hidden')
+  $('savedCard').classList.add('hidden')
+  $('picker').classList.remove('hidden')
+  if (message) say('err', message)
+}
 function say(kind, text) {
   const el = $('status')
   const txt = $('statusText')
@@ -467,13 +519,15 @@ function fail(e) {
   const msg = e && e.name === 'AbortError'
     ? '连不上主机：超时，请确认主机与手机在同一局域网'
     : String(e.message || e)
-  say('err', msg)
+  nativeSignal('dshConnectionFailed', { message: msg })
+  showPairing(msg)
 }
 
 function enterWithAppToken(base, token) {
   save(base, token)
+  nativeSignal('dshConnectionStarting', { host: base })
   say('ok', '已连接，正在进入…')
-  location.assign(base + '#dsh-session=' + encodeURIComponent(token))
+  location.assign(base + 'launch#dsh-session=' + encodeURIComponent(token))
 }
 
 async function establishWebSession(base, token) {
@@ -488,8 +542,15 @@ async function establishWebSession(base, token) {
   location.assign(base)
 }
 
-async function connectWithToken(base, token) {
-  say('', '正在检查主机…'); setBusy(true)
+async function connectWithToken(base, token, { auto = false } = {}) {
+  if (!token) {
+    localStorage.removeItem(STORE_KEY)
+    fail(new Error('已保存的连接凭据失效，请重新配对'))
+    return
+  }
+  showLoading(base, auto ? '正在自动连接…' : '正在检查主机…')
+  nativeSignal('dshConnectionStarting', { host: base })
+  setBusy(true)
   try {
     await healthcheck(base)
     if (IS_APP) enterWithAppToken(base, token)
@@ -498,7 +559,9 @@ async function connectWithToken(base, token) {
 }
 
 async function connectWithCode(base, code) {
-  say('', '正在兑换配对码…'); setBusy(true)
+  showLoading(base, '正在兑换配对码…')
+  nativeSignal('dshConnectionStarting', { host: base })
+  setBusy(true)
   try {
     await healthcheck(base)
     const ctl = new AbortController()
@@ -530,25 +593,26 @@ async function connectWithCode(base, code) {
 }
 
 /* ── Saved connection ── */
-const saved = load()
+const saved = RECONNECT_REQUIRED ? null : load()
+if (RECONNECT_REQUIRED) localStorage.removeItem(STORE_KEY)
 if (saved && saved.base && QR_PAIR_CODE === null && APP_SESSION_TOKEN === null) {
-  $('savedCard').classList.remove('hidden')
-  $('picker').classList.add('hidden')
   $('savedHost').textContent = saved.base
   $('server').value = saved.base
   $('pairServer').value = saved.base
   $('token').value = saved.token || ''
-  $('continueBtn').onclick = () => {
-    if (IS_APP) connectWithToken(saved.base, $('token').value || saved.token)
-    else location.assign(saved.base)
-  }
-  $('changeBtn').onclick = () => {
-    $('savedCard').classList.add('hidden')
-    $('picker').classList.remove('hidden')
-    requestAnimationFrame(() => {
-      updateTabTrack()
-      $('server').focus()
-    })
+  if (IS_APP) {
+    showLoading(saved.base, '正在自动连接…')
+  } else {
+    $('savedCard').classList.remove('hidden')
+    $('picker').classList.add('hidden')
+    $('continueBtn').onclick = () => location.assign(saved.base)
+    $('changeBtn').onclick = () => {
+      showPairing()
+      requestAnimationFrame(() => {
+        updateTabTrack()
+        $('server').focus()
+      })
+    }
   }
 }
 
@@ -577,7 +641,11 @@ if (APP_SESSION_TOKEN) {
   }).then((res) => {
     if (!res.ok) throw new Error('设备会话已失效，请重新配对')
     location.replace(location.origin + '/')
-  }).catch(fail)
+  }).catch((error) => {
+    nativeSignal('dshPairingRequired', { message: error.message })
+    if (IS_APP) location.replace('capacitor://localhost/#dsh-reconnect=1')
+    else fail(error)
+  })
 }
 
 /* ── Mode tabs ── */
@@ -614,8 +682,11 @@ $('tokenForm').onsubmit = (e) => {
 
 /* ── Auto-focus & tab track init ── */
 window.addEventListener('DOMContentLoaded', () => {
+  nativeSignal('dshLauncherReady')
   updateTabTrack()
-  if ($('savedCard').classList.contains('hidden')) {
+  if (saved && saved.base && IS_APP && QR_PAIR_CODE === null && APP_SESSION_TOKEN === null) {
+    connectWithToken(saved.base, $('token').value || saved.token, { auto: true })
+  } else if ($('savedCard').classList.contains('hidden') && $('loadingCard').classList.contains('hidden')) {
     const pairMode = !$('pairForm').classList.contains('hidden')
     const firstInput = $(IS_APP
       ? (pairMode ? 'pairServer' : 'server')

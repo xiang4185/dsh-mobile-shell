@@ -170,6 +170,14 @@ await check('GET / with session cookie → the real dsh web UI', async () => {
   expect(html.includes('getRandomValues'), 'UUID shim does not use Web Crypto randomness')
 })
 
+await check('authenticated client connection receives proxy-backed loopback capability', async () => {
+  const res = await fetch(`${PROXY}/plugins/@deepseek-ai/dsh-client-connection/client.js`, { headers: session })
+  expect(res.status === 200, `HTTP ${res.status}`)
+  const script = await res.text()
+  expect(script.includes('dsh-remote-authenticated-loopback-capability'),
+    'authenticated connection module was not promoted to the proxy trust boundary')
+})
+
 await check('POST /api without cookie → 401', async () => {
   const res = await fetch(`${PROXY}/api/rpc/connection/ping`, {
     method: 'POST',

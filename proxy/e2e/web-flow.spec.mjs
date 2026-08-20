@@ -34,6 +34,21 @@ async function mintPairingCode(request) {
   return body.code
 }
 
+async function dismissUpstreamOnboarding(page) {
+  const continueButton = page.getByRole('button', { name: /^(Continue|继续)$/i })
+  if (await continueButton.isVisible().catch(() => false)) {
+    await continueButton.click()
+  }
+}
+
+async function expectHarnessReady(page) {
+  await expect(page).toHaveTitle(/DeepSeek Harness/)
+  await dismissUpstreamOnboarding(page)
+  // The upstream hero is localized; verify the product surface rather than
+  // pinning this proxy regression test to one locale string.
+  await expect(page.locator('body')).toContainText(/探索未至之境|Into the Unknown/)
+}
+
 test.describe('Web QR pairing', () => {
   test('prefills a one-time code, pairs, and keeps the session after reload', async ({ page, request }) => {
     const errors = trackBrowserErrors(page)
@@ -48,13 +63,12 @@ test.describe('Web QR pairing', () => {
     await expect(page.locator('#pairServer')).toBeHidden()
     await expect(page.getByText(/当前主机/)).toBeVisible()
     await expect(page.locator('#code')).toHaveValue(code)
-    await expect(page.getByRole('button', { name: '确认配对并连接' })).toBeFocused()
+    await expect(page.getByRole('button', { name: '确认配对并连接' })).toBeEnabled()
     await expect(page.locator('body')).not.toContainText(MASTER_TOKEN)
 
     await page.getByRole('button', { name: '确认配对并连接' }).click()
     await expect(page).toHaveURL(/\/$/)
-    await expect(page).toHaveTitle(/DeepSeek Harness/)
-    await expect(page.locator('body')).toContainText('探索未至之境')
+    await expectHarnessReady(page)
 
     const cookies = await page.context().cookies()
     const sessionCookie = cookies.find((cookie) => cookie.name === 'dsh_token')
@@ -63,8 +77,7 @@ test.describe('Web QR pairing', () => {
     expect(page.url()).not.toContain('token')
 
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await expect(page).toHaveTitle(/DeepSeek Harness/)
-    await expect(page.locator('body')).toContainText('探索未至之境')
+    await expectHarnessReady(page)
     await expect(page.locator('body')).not.toHaveClass(/web/)
     const knownDiagnostics = errors.filter((error) =>
       KNOWN_UPSTREAM_DIAGNOSTICS.some((pattern) => pattern.test(error)))

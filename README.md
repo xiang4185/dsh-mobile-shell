@@ -2,6 +2,8 @@
 
 English | [中文](README.zh.md)
 
+> **iOS maintainers:** read [`IOS-STABLE-BASELINE.md`](IOS-STABLE-BASELINE.md) and [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) before changing iOS code. They record the current 1.1.1 Stable, the original 1.1.0 rollback anchor, locked keyboard/Settings/Drawer/bootstrap invariants, and the regression gate.
+
 A community, open-source **mobile shell** for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) — a thin WebView app that connects your phone to your own self-hosted `dsh web` host, plus the token-guard reverse proxy that exposes that host to your LAN safely.
 
 > **Not an official DeepSeek product.** This is a companion client built on the MIT-licensed upstream. The harness itself never runs on your phone: every tool execution (shell, files, terminal, LSP…) stays on your host, so the mobile app keeps **feature parity** with the desktop web UI by construction.
@@ -31,7 +33,7 @@ npm run verify:web
 `dist/web/web-artifact.json` is the integration contract. It declares the `proxy`, `launcher`, and `pairing` entrypoints plus the artifact format version. Desktop consumers read the manifest instead of depending on this repository's source layout, so source changes can remain local to this repository. The directory can be released directly or archived:
 
 ```sh
-tar -czf dist/dsh-mobile-shell-v1.1.0-web.tar.gz -C dist/web .
+tar -czf dist/dsh-mobile-shell-v1.1.1-web.tar.gz -C dist/web .
 ```
 
 An external host starts `dsh web` on loopback and the artifact proxy as separate processes:
@@ -49,14 +51,14 @@ For desktop integration, build `dist/web` in this repository first, then run `DS
 
 ## Versioning
 
-The current project version is `1.1.0`, declared once in the root `package.json`. The proxy package, Capacitor package, Android `versionName`, iOS `MARKETING_VERSION`, and Web artifact manifest are checked against it:
+The current project version is `1.1.1`, declared once in the root `package.json`. The proxy package, Capacitor package, Android `versionName`, iOS `MARKETING_VERSION`, and Web artifact manifest are checked against it:
 
 ```sh
 npm run verify:version
 npm run package:web
 ```
 
-Release tags use the `v<version>` form; validate one explicitly with `node scripts/verify-version.mjs v1.1.0` before publishing. Pushing a matching tag runs the Android, iOS, and Web builds and publishes all three assets. Existing historical tags are not rewritten.
+Release tags use the `v<version>` form; validate one explicitly with `node scripts/verify-version.mjs v1.1.1` before publishing. Pushing a matching tag runs the Android, iOS, and Web builds and publishes all three assets. Existing historical tags are not rewritten.
 
 ## Quick start: start / scan / confirm
 

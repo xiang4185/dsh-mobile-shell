@@ -12,6 +12,7 @@ if (!script) throw new Error('launcher inline script not found')
 function expect(condition, message) {
   if (!condition) throw new Error(message)
 }
+expect(!script.includes("setResizeMode?.({ mode: 'native' })"), 'launcher must not enable a second native keyboard resize driver')
 
 function launcherContext({ app = false, hash = '', search = '', savedConnection } = {}) {
   const elements = new Map()
@@ -126,8 +127,8 @@ const app = launcherContext({ app: true })
 vm.runInContext("enterWithAppToken('http://host.test:3081/', 'device-token')", app.context)
 const appSaved = JSON.parse(app.stored.get('dsh.connection'))
 expect(appSaved.token === 'device-token', 'App did not retain its scoped device token')
-expect(app.assigned[0] === 'http://host.test:3081/#dsh-session=device-token', `unsafe App handoff URL: ${app.assigned[0]}`)
+expect(app.assigned[0] === 'http://host.test:3081/launch#dsh-session=device-token', `unsafe App handoff URL: ${app.assigned[0]}`)
 expect(!app.assigned[0].includes('?token='), 'App handoff leaked token into the query string')
-console.log('ok   App handoff uses a fragment, never a token query parameter')
+console.log('ok   App handoff uses /launch and a fragment, never a token query parameter')
 
 console.log('\nall launcher checks passed')

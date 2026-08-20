@@ -70,6 +70,8 @@ jobs:
             "release/dsh-mobile-shell-${GITHUB_REF_NAME}-android-debug.apk"
           cp dist/dsh-mobile-ios-simulator-app/DSH-simulator.app.zip \
             "release/dsh-mobile-shell-${GITHUB_REF_NAME}-ios-simulator.app.zip"
+          cp dist/dsh-mobile-ios-unsigned-device-ipa/DSH-unsigned.ipa \
+            "release/dsh-mobile-shell-${GITHUB_REF_NAME}-ios-unsigned.ipa"
           cp "dist/dsh-mobile-web-artifact/dsh-mobile-shell-${GITHUB_REF_NAME}-web.tar.gz" \
             "release/dsh-mobile-shell-${GITHUB_REF_NAME}-web.tar.gz"
           ls -la release
@@ -80,10 +82,10 @@ jobs:
           files: release/*
           generate_release_notes: true
           body: |
-            Android：直接下载 APK 安装。Web：解压后按 README 启动代理。iOS：当前为模拟器包，真机/TestFlight 见路线图阶段 3。
+            Android：直接下载 APK 安装。Web：解压后按 README 启动代理。iOS：同时发布模拟器包和 unsigned 真机 IPA；真机安装仍需签名或侧载工具。
 
             国内下载加速：在 Release 资产 URL 前加 `https://ghproxy.net/` 前缀。
 
-            Android: install the APK directly. Web: extract the archive and follow the README. iOS: simulator build for now — device distribution (TestFlight) is phase 3.
+            Android: install the APK directly. Web: extract the archive and follow the README. iOS: simulator app and unsigned device IPA are published; device installation still requires signing or a sideloading tool.
 
             China mirror: prefix any asset URL with `https://ghproxy.net/`.

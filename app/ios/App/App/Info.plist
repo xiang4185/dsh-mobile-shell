@@ -24,6 +24,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>DSH 需要访问局域网中的主机以建立连接。</string>
+  <key>NSCameraUsageDescription</key>
+  <string>DSH 用于拍摄并发送聊天附件。</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>DSH 用于选择并发送聊天附件。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -45,7 +51,7 @@
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+    <string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

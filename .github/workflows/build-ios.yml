@@ -4,10 +4,10 @@ name: build-ios
 
 on:
   push:
-    branches: [main]
-    paths: ['app/ios/**', 'app/www/**', 'app/capacitor.config.ts', '.github/workflows/build-ios.yml']
+    branches: [main, fork-main]
+    paths: ['app/ios/**', 'app/www/**', 'app/capacitor.config.ts', 'app/package.json', 'app/package-lock.json', 'scripts/fix-spm-vendor.mjs', 'scripts/verify-ios-embedded-js.mjs', 'scripts/verify-launcher.mjs', 'scripts/verify-pairing-qr.mjs', 'scripts/verify-web-artifact.mjs', '.github/workflows/build-ios.yml']
   pull_request:
-    paths: ['app/ios/**', 'app/www/**', 'app/capacitor.config.ts', '.github/workflows/build-ios.yml']
+    paths: ['app/ios/**', 'app/www/**', 'app/capacitor.config.ts', 'app/package.json', 'app/package-lock.json', 'scripts/fix-spm-vendor.mjs', 'scripts/verify-ios-embedded-js.mjs', 'scripts/verify-launcher.mjs', 'scripts/verify-pairing-qr.mjs', 'scripts/verify-web-artifact.mjs', '.github/workflows/build-ios.yml']
   workflow_call: {}
   workflow_dispatch: {}
 
@@ -27,6 +27,13 @@ jobs:
       - name: Install JS dependencies
         run: npm ci --prefix app
 
+      - name: Verify iOS and launcher sources
+        run: |
+          npm --prefix app run typecheck
+          node scripts/verify-ios-embedded-js.mjs
+          node scripts/verify-launcher.mjs
+          node scripts/verify-pairing-qr.mjs
+          npm run package:web && npm run verify:web
       # cap sync copies www/ into ios/App/App/public (gitignored build output)
       # and writes capacitor.config.json. It also regenerates
       # CapApp-SPM/Package.swift — reverting the vendored local-path

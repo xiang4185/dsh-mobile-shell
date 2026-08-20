@@ -140,6 +140,36 @@ const RANDOM_UUID_POLYFILL = `<script ${RANDOM_UUID_POLYFILL_MARKER}>
 })()
 </script>`
 
+// DSH rc.8 deliberately marks non-loopback browser settings as unavailable
+// because upstream has no remote authentication boundary. dsh-remote *is* that
+// boundary: every UI asset and API request reaching forwardHttp has already
+// passed the device/master-token gate plus same-origin check, and the upstream
+// request is then fenced back onto loopback. Promote only the authenticated
+// proxy-served connection handle to loopback capability; direct dsh web keeps
+// the upstream behavior unchanged.
+const AUTHENTICATED_CONNECTION_MARKER = 'dsh-remote-authenticated-loopback-capability'
+const CONNECTION_LOOPBACK_PATTERN = /isLoopback:\s*pageLocation === void 0 \|\| isLoopbackHostname\(pageLocation\.hostname\),/
+
+function authenticatedClientConnectionPath(path) {
+  try {
+    return new URL(path, 'http://dsh.internal').pathname
+      === '/plugins/@deepseek-ai/dsh-client-connection/client.js'
+  } catch {
+    return false
+  }
+}
+
+function injectAuthenticatedConnectionCapability(body) {
+  const source = body.toString('utf8')
+  if (source.includes(AUTHENTICATED_CONNECTION_MARKER)) return { body, changed: false }
+  if (!CONNECTION_LOOPBACK_PATTERN.test(source)) return { body, changed: false }
+  const patched = source.replace(
+    CONNECTION_LOOPBACK_PATTERN,
+    `isLoopback: true /* ${AUTHENTICATED_CONNECTION_MARKER} */,`,
+  )
+  return { body: Buffer.from(patched, 'utf8'), changed: true }
+}
+
 // Web mode (ADR-0007): serve the launcher page to unauthenticated browsers so
 // any phone/desktop browser can pair without installing the app. Resolution:
 // DSH_LAUNCHER=<path> (explicit; unreadable → fail loud) → repo-layout default
@@ -217,9 +247,20 @@ const PAIR_RATE_MAX = 10
 const pairCodes = new Map()
 /** @type {Map<string, {count: number, resetAt: number}>} source IP → attempts */
 const pairAttempts = new Map()
+function purgePairState(now = Date.now()) {
+  for (const [code, expiry] of pairCodes) {
+    if (expiry <= now) pairCodes.delete(code)
+  }
+  for (const [ip, entry] of pairAttempts) {
+    if (entry.resetAt <= now) pairAttempts.delete(ip)
+  }
+}
+const pairStateSweep = setInterval(purgePairState, PAIR_RATE_WINDOW_MS)
+pairStateSweep.unref?.()
 
 function mintPairCode() {
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0')
+  purgePairState()
   pairCodes.set(code, Date.now() + PAIR_CODE_TTL_MS)
   return code
 }
@@ -273,6 +314,7 @@ function redeemPairCode(code) {
 
 function pairRateLimited(ip) {
   const now = Date.now()
+  purgePairState(now)
   const entry = pairAttempts.get(ip)
   if (entry === undefined || entry.resetAt <= now) {
     pairAttempts.set(ip, { count: 1, resetAt: now + PAIR_RATE_WINDOW_MS })
@@ -373,6 +415,7 @@ function injectRandomUuidPolyfill(body) {
 
 function forwardHttp(req, res, path) {
   const htmlDocument = req.method !== 'HEAD' && frontendDocumentPath(path)
+  const authenticatedConnectionModule = req.method !== 'HEAD' && authenticatedClientConnectionPath(path)
   const upstream = http.request({
     host: TARGET_HOST,
     port: TARGET_PORT,
@@ -382,16 +425,25 @@ function forwardHttp(req, res, path) {
   })
   upstream.on('response', (upRes) => {
     const contentType = String(upRes.headers['content-type'] ?? '')
-    const canPatch = htmlDocument
+    const patchHtml = htmlDocument
       && (upRes.statusCode ?? 500) >= 200
       && (upRes.statusCode ?? 500) < 300
       && contentType.toLowerCase().includes('text/html')
       && !upRes.headers['content-encoding']
+    const patchConnection = authenticatedConnectionModule
+      && (upRes.statusCode ?? 500) >= 200
+      && (upRes.statusCode ?? 500) < 300
+      && /javascript|ecmascript|text\/plain/i.test(contentType)
+      && !upRes.headers['content-encoding']
+    const canPatch = patchHtml || patchConnection
     if (canPatch) {
       const chunks = []
       upRes.on('data', (chunk) => chunks.push(chunk))
       upRes.on('end', () => {
-        const result = injectRandomUuidPolyfill(Buffer.concat(chunks))
+        const original = Buffer.concat(chunks)
+        const result = patchHtml
+          ? injectRandomUuidPolyfill(original)
+          : injectAuthenticatedConnectionCapability(original)
         const headers = { ...upRes.headers }
         if (result.changed) {
           delete headers['transfer-encoding']
@@ -690,10 +742,9 @@ server.on('clientError', (_error, socket) => {
   if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
 })
 
-// SSE streams and WS tunnels are long-lived; Node's default request/headers
-// timeouts would kill them mid-session.
+// Keep active streaming requests and sockets open; retain a finite header
+// timeout so unauthenticated slow-header connections cannot exhaust the proxy.
 server.requestTimeout = 0
-server.headersTimeout = 0
 server.timeout = 0
 
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {

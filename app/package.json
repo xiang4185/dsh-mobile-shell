@@ -1,6 +1,6 @@
 {
   "name": "@dsh-mobile/app",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "dsh-mobile: Capacitor shell connecting to a self-hosted DeepSeek Harness (dsh web) host",
   "type": "module",
@@ -9,7 +9,7 @@
     "open:android": "cap open android",
     "open:ios": "cap open ios",
     "build:android": "cd android && ./gradlew assembleDebug",
-    "build:ios": "xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build",
+    "build:ios": "npm run sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build",
     "typecheck": "tsc --noEmit capacitor.config.ts --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck"
   },
   "dependencies": {

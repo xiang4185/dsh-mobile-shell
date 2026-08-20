@@ -69,6 +69,7 @@ DSH_REMOTE_TOKEN=<token> DSH_TLS_CERT=/path/fullchain.pem DSH_TLS_KEY=/path/priv
 - 所有 HTTP 请求与 WS 握手先过令牌门（HttpOnly 设备 Cookie / Bearer；`?token=` 仅保留为兼容入口且会先降权为设备令牌），未通过一律 401/403——例外是 Web 模式（ADR-0007）：未授权的 `GET /` 与 `/launch` 返回静态启动页（不含秘密），`/api`、WS 与 UI 资产仍全部有门。
 - 浏览器配对响应直接种 HttpOnly 设备 Cookie，不把主令牌或设备令牌交给页面 JavaScript；请求 Origin 与 Host 不属于同一 authority 时，已认证 API/WS 也会拒绝（允许 Caddy/Nginx 在前方终止 TLS）。
 - 转发时把 Host 改写为 loopback 并剥离 Origin，使上游 `/api` 信任围栏按 loopback 语义通过；跨站防护由令牌门承担。
+- DSH rc.8 起，官方前端会把非 loopback 浏览器的 Settings 配置面直接标记为不可用，因为裸 `dsh web` 没有远程认证层。对**已经通过本代理令牌门和同源检查**的 UI 连接，代理会在返回 `dsh-client-connection` 模块时把该连接提升到 loopback capability，使模型/插件等 Settings 继续通过同一受保护代理访问 Host；直接访问裸 `dsh web` 的官方限制不变。
 - `GET /healthz` 无需令牌（`Access-Control-Allow-Origin: *`），只回答"代理活着"，供 App 启动页预检。
 
 ## 当前限制

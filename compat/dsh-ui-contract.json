@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "baselineVersion": "0.1.0-rc.6",
+  "packages": [
+    "@deepseek-ai/dsh-client-ui-layout",
+    "@deepseek-ai/dsh-client-ui-sidebar",
+    "@deepseek-ai/dsh-client-ui-settings",
+    "@deepseek-ai/dsh-client-ui-settings-general",
+    "@deepseek-ai/dsh-client-ui-conversation",
+    "@deepseek-ai/dsh-client-ui-model-selection",
+    "@deepseek-ai/dsh-client-ui-agent-preset",
+    "@deepseek-ai/dsh-client-ui-workspace",
+    "@deepseek-ai/dsh-client-ui-permission-presets",
+    "@deepseek-ai/dsh-client-ui-input-trigger"
+  ],
+  "privateClassPrefixes": [
+    "VOzbGW_",
+    "hHd-Xa_",
+    "qDHVXG_",
+    "uV2eYG_",
+    "wSkVaW_",
+    "pI_x6G_",
+    "Sh0Q9G_",
+    "cubgiG_",
+    "_7KE1Ra_",
+    "YDXeBa_",
+    "nL4_yW_",
+    "pXSMma_",
+    "JObwrW_",
+    "mufS8W_"
+  ],
+  "optionalBreaks": [
+    "hHd-Xa_railFish"
+  ],
+  "notes": {
+    "hHd-Xa_railFish": "Decorative sidebar brand asset only. rc.8 replaces it with brand/rail mark classes; absence must not block the mobile shell."
+  }
+}
