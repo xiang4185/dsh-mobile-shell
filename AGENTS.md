@@ -2,7 +2,7 @@
 
 Before changing iOS code, read [`IOS-STABLE-BASELINE.md`](IOS-STABLE-BASELINE.md) and [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md).
 
-The current Stable release is `v1.1.1`. Commit `f2dde4d` remains the original iOS 1.1.0 runtime rollback anchor.
+The current Stable release is `v1.1.1`. GitHub history was compacted after this release; use the formal release tags (`v1.1.0`, `v1.1.1`) as comparison/rollback references instead of pre-cleanup diagnostic commit hashes.
 
 Keep these invariants unless the task specifically proves one is the root cause:
 
@@ -15,7 +15,7 @@ Keep these invariants unless the task specifically proves one is the root cause:
 - Do not touch Android as a side effect of an iOS task.
 - Keep changes narrow and run `node scripts/verify-ios-embedded-js.mjs` after editing embedded iOS JS.
 
-When a regression appears, compare against `f2dde4d` first and prefer true-device evidence over speculative fixes.
+When a regression appears, compare against the nearest Stable release tag first and prefer true-device evidence over speculative fixes.
 
 For any DSH upstream-version work, also read [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md). Use the compatibility registry and `scripts/audit-dsh-compat.mjs`; do not add new scattered private-class queries or replace the Stable host before a separately pinned candidate passes its gates.
 

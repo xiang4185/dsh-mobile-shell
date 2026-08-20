@@ -7,9 +7,9 @@
 ## 1. 当前冻结基线
 
 - 项目版本：`1.1.1`
-- 主分支：`fork-main`
+- 主分支：`main`
 - 当前 Stable tag：`v1.1.1`
-- 1.1.0 原始运行代码回退锚点：`f2dde4d` — `polish-ios: remove final control chrome`
+- 前一正式发布快照：`v1.1.0`
 - 状态：2026-08-20 rc.8 Compatibility Layer + 真机收口完成
 - 封版审计：[`docs/RELEASE-1.1.1-AUDIT.md`](docs/RELEASE-1.1.1-AUDIT.md)
 - 已知未解决项统一记录在 [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)，不要用临时补丁掩盖。
@@ -17,7 +17,7 @@
 如果后续出现“以前明明正常，现在突然坏了”的问题，第一件事不是继续补 CSS/JS，而是：
 
 ```bash
-git diff f2dde4d..HEAD -- app/ios app/capacitor.config.ts scripts/verify-ios-embedded-js.mjs
+git diff v1.1.1..HEAD -- app/ios app/capacitor.config.ts scripts/verify-ios-embedded-js.mjs
 ```
 
 先确认稳定基线之后到底改了什么。
@@ -133,7 +133,7 @@ message scroller     只负责 reading anchor
 
 ### Post-Stable 已确认的手机输入交互
 
-`dsh-upgrade/compat-layer` 后续真机验收又固定了一条手机端交互规则：**用户点进 Composer 准备输入时，不再保留历史中间阅读位置，而是直接回到最新消息并保持 bottom pinned。**
+`v1.1.1` 真机验收又固定了一条手机端交互规则：**用户点进 Composer 准备输入时，不再保留历史中间阅读位置，而是直接回到最新消息并保持 bottom pinned。**
 
 实现边界仍不变：输入框的 pointer/focus 只表达“回到底部”的用户意图，消息列表仍由自己的 `ResizeObserver` 维持 bottom pin；不得因此新增 keyboard event、`visualViewport`、键盘高度 JS、`scrollIntoView()` 或第二套 viewport resize。
 
@@ -143,14 +143,7 @@ message scroller     只负责 reading anchor
 
 ## 5. 键盘历史根因：Auto Layout 冲突也会把 viewport 搞坏
 
-曾经第一处真机回归发生在：
-
-```text
-2c89282  GOOD
-7bbc507  BAD
-```
-
-`7bbc507` 给 Loading 大图加了：
+历史真机隔离曾确认：给 Loading 大图加入下面两条 Required compression resistance 后，会触发明显的键盘 viewport 回归：
 
 ```swift
 heroImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -159,10 +152,7 @@ heroImageView.setContentCompressionResistancePriority(.required, for: .vertical)
 
 同时又有 Required 的较小尺寸上限，造成同一个 Controller 内 Auto Layout 冲突。键盘 `keyboardLayoutGuide` 收缩时，整个布局求解被污染，于是表面看起来像“键盘代码坏了”。
 
-真机隔离验证：
-
-- `a68cf29`：只删除两行 `.required` → 问题消失
-- `69ca713`：正式修复 `remove loading image compression resistance`
+真机隔离验证已经证明：只删除这两条 `.required` 后问题消失，因此当前 Stable 明确禁止恢复它们。
 
 ### 结论
 
@@ -195,8 +185,8 @@ Loading
 
 当前已经锁定：
 
-- `1598d94`：启动阶段阻止脚本自动 focus，避免冷启动键盘闪一下再收回。
-- `2633421`：Session 恢复稳定后才 reveal，不靠固定 300/500ms 延迟。
+- 启动阶段阻止脚本自动 focus，避免冷启动键盘闪一下再收回。
+- Session 恢复稳定后才 reveal，不靠固定 300/500ms 延迟。
 - Loading connection-start 动画是幂等的，重复连接 signal 不应该让动画重新从左边开始。
 
 如果启动键盘又闪：优先找 `autofocus`、`.focus()`、React effect、Session 恢复后的 composer focus；**不要用“先弹出来再 blur/resign”掩盖。**
@@ -224,9 +214,7 @@ BODY popup menu            z-index = 1100
 
 此前 iOS 曾把 Settings/sidebar 抬到 `19990 / 20000`，结果按钮点击其实成功、menu 也创建成功，但 body portal 的 `1100` 被整个 Settings stacking context 压在下面，看起来就像“下拉完全点不了”。
 
-正式修复：
-
-- `82f55b7` — `restore settings portal stacking order`
+正式修复原则：恢复官方 Settings/body portal stacking order，而不是继续抬高 Settings 自身层级。
 
 ### 维护规则
 
@@ -328,7 +316,7 @@ mobileLayoutBootstrap
 mobileThemeBootstrap
 ```
 
-曾经 `46e966f` 少了一个 `}`，但 Swift/Xcode 仍然能编译，因为 JavaScript 对 Swift 只是字符串。
+历史上曾出现 Embedded JS 少一个 `}`，但 Swift/Xcode 仍然能编译，因为 JavaScript 对 Swift 只是字符串。
 
 所以现在 CI 必须执行：
 
@@ -451,7 +439,7 @@ Composer：
 
 1. **确认 Stable 差异**
    ```bash
-   git diff f2dde4d..HEAD -- app/ios app/capacitor.config.ts
+   git diff v1.1.1..HEAD -- app/ios app/capacitor.config.ts
    ```
 2. **先判断是哪一层**
    - Bootstrap / Root Controller
@@ -480,25 +468,21 @@ Composer：
 
 ---
 
-## 15. 关键历史锚点
+## 15. 关键历史结论
 
-这些 commit 是以后 bisect/理解根因的重要参照：
+GitHub 历史已在 `v1.1.1` 后做过压缩，预发布诊断 commit 不再作为远端维护锚点。以后按正式 release tag 和下面这些已验证结论排障：
 
-| Commit | 含义 |
+| 主题 | 已锁定结论 |
 |---|---|
-| `72bb9f5` | 键盘 Single Native Viewport Driver 基线 |
-| `7bbc507` | 首次引入 Loading Auto Layout 键盘回归（BAD 参照） |
-| `a68cf29` | 隔离实验：删除 Loading required compression resistance 后真机恢复 |
-| `69ca713` | 正式删除 Loading required compression resistance |
-| `82f55b7` | 恢复 Settings portal 正确 stacking order |
-| `1598d94` | 阻止启动脚本 focus 导致键盘闪现 |
-| `2633421` | Session 稳定后再 reveal，消除新会话闪跳 |
-| `c0ff7cb` | Stable closeout：阅读锚点、JS CI、Loading 幂等 |
-| `f2dde4d` | **1.1.0 原始 Stable 运行代码回退点** |
-| `28a516d` | DSH operational selector registry / Compatibility Layer v1 |
-| `fcb5360` | rc.8 authenticated Settings capability bridge |
-| `49a2705` | rc.8 iOS 兼容与视觉收口 |
-| `6a6b480` | Composer focus 时回最新消息 / bottom pinned 行为 |
+| 键盘 viewport | `keyboardLayoutGuide` 是唯一 driver |
+| Loading / Auto Layout | 不允许恢复 `.required` compression resistance |
+| Settings | Settings/sidebar `z=1000`，BODY portal `z=1100` |
+| 启动 focus | 冷启动期间阻止脚本自动 focus |
+| Session reveal | Session 稳定后再 reveal，不用固定延时 |
+| Embedded JS | Swift 编译绿不代表 JS 语法正确，必须跑独立校验 |
+| DSH Compatibility | operational selector 统一进入 compatibility registry |
+| rc.8 Settings | 通过 authenticated Proxy capability bridge 暴露 Host Settings |
+| Composer | 输入意图即回最新消息并保持 bottom pinned |
 
 ---
 
@@ -512,7 +496,7 @@ Composer：
 - authenticated rc.8 Settings capability bridge；
 - candidate -> browser gate -> iOS CI -> true-device gate -> promote 的固定流程。
 
-详细流程见 [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md)。`f2dde4d` 继续作为 1.1.0 原始运行代码的硬回退锚点。
+详细流程见 [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md)。回归对比统一使用正式 release tag；当前 Stable 是 `v1.1.1`，前一正式快照是 `v1.1.0`。
 
 后续可以单独做、但不要混入小修：
 

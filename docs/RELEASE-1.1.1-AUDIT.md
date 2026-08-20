@@ -72,7 +72,7 @@ mixed prerelease versions = 0
 
 ## 5. GitHub CI
 
-封版提交 `73ae1a9` 的独立分支 CI：
+封版候选的独立 CI：
 
 - `build-ios #32389968559` — **success**
 - `build-android #32389972235` — **success**

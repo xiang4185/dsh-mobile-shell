@@ -4,9 +4,11 @@ This track starts **after** the iOS 1.1.0 Stable freeze. It must not change the 
 
 Stable reference:
 
-- Runtime freeze: `f2dde4d`
-- Stable-maintenance documentation: `97b4606`
-- Upgrade branch: `dsh-upgrade/compat-layer`
+- Current Stable release: `v1.1.1`
+- Previous formal release snapshot: `v1.1.0`
+- Canonical branch: `main`
+
+The pre-release diagnostic branches/commit IDs used while building this layer were intentionally removed when GitHub history was compacted after `v1.1.1`. Future comparisons should use formal release tags and the behavior contracts documented here.
 
 ## Goal
 
