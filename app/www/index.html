@@ -515,12 +515,35 @@ function say(kind, text) {
   el.className = 'status' + (kind ? ' ' + kind : '') + (text ? ' visible' : '')
   txt.textContent = text
 }
-function fail(e) {
-  const msg = e && e.name === 'AbortError'
-    ? '连不上主机：超时，请确认主机与手机在同一局域网'
+function connectionErrorMessage(e) {
+  return e && e.name === 'AbortError'
+    ? '连不上主机：连接超时'
     : String(e.message || e)
+}
+function fail(e) {
+  const msg = connectionErrorMessage(e)
   nativeSignal('dshConnectionFailed', { message: msg })
   showPairing(msg)
+}
+
+function showSavedConnectionFailure(base, token, error) {
+  const msg = '已保存的主机暂时无法连接，可重试或更换主机'
+  nativeSignal('dshConnectionFailed', { message: connectionErrorMessage(error) })
+  $('loadingCard').classList.add('hidden')
+  $('picker').classList.add('hidden')
+  $('savedCard').classList.remove('hidden')
+  $('savedHost').textContent = base
+  $('continueBtn').querySelector('.btn__text').textContent = '重试'
+  $('continueBtn').onclick = () => connectWithToken(base, token)
+  $('changeBtn').onclick = () => {
+    showPairing()
+    say('', '')
+    requestAnimationFrame(() => {
+      updateTabTrack()
+      $('pairServer').focus()
+    })
+  }
+  say('err', msg)
 }
 
 function enterWithAppToken(base, token) {
@@ -555,7 +578,10 @@ async function connectWithToken(base, token, { auto = false } = {}) {
     await healthcheck(base)
     if (IS_APP) enterWithAppToken(base, token)
     else await establishWebSession(base, token)
-  } catch (e) { fail(e) } finally { setBusy(false) }
+  } catch (e) {
+    if (auto && IS_APP) showSavedConnectionFailure(base, token, e)
+    else fail(e)
+  } finally { setBusy(false) }
 }
 
 async function connectWithCode(base, code) {

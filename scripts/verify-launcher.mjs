@@ -50,6 +50,7 @@ function launcherContext({ app = false, hash = '', search = '', savedConnection 
     localStorage: {
       getItem: (key) => stored.get(key) ?? null,
       setItem: (key, value) => stored.set(key, value),
+      removeItem: (key) => stored.delete(key),
     },
     location: {
       origin: 'http://127.0.0.1:3081',
@@ -130,5 +131,22 @@ expect(appSaved.token === 'device-token', 'App did not retain its scoped device 
 expect(app.assigned[0] === 'http://host.test:3081/launch#dsh-session=device-token', `unsafe App handoff URL: ${app.assigned[0]}`)
 expect(!app.assigned[0].includes('?token='), 'App handoff leaked token into the query string')
 console.log('ok   App handoff uses /launch and a fragment, never a token query parameter')
+
+const staleApp = launcherContext({
+  app: true,
+  savedConnection: { base: 'https://stale-host.test/', token: 'device-token', at: 1 },
+})
+await vm.runInContext(
+  "connectWithToken('https://stale-host.test/', 'device-token', { auto: true })",
+  staleApp.context,
+)
+const staleSaved = JSON.parse(staleApp.stored.get('dsh.connection'))
+expect(staleSaved.token === 'device-token', 'temporary auto-connect failure discarded the saved device token')
+expect(!staleApp.elements.get('savedCard').classList.contains('hidden'), 'failed auto-connect did not expose saved-host recovery')
+expect(staleApp.elements.get('picker').classList.contains('hidden'), 'failed auto-connect opened pairing immediately instead of recovery actions')
+expect(staleApp.elements.get('loadingCard').classList.contains('hidden'), 'failed auto-connect left the loading card visible')
+expect(staleApp.elements.get('continueBtnText').textContent === '重试', 'failed auto-connect did not turn continue into retry')
+expect(staleApp.elements.get('statusText').textContent.includes('可重试或更换主机'), 'failed auto-connect recovery message missing')
+console.log('ok   failed App auto-connect exposes retry/change-host recovery without discarding credentials')
 
 console.log('\nall launcher checks passed')
