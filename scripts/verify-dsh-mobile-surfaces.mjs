@@ -12,6 +12,11 @@
  *     iOS shell uses. No test-only copy of the injection exists.
  *
  * What is proven on the live candidate:
+ *   - the raw `/plugins/??pkg-a/client.js,pkg-b/client.js&rev=...` multi-entry
+ *     module target survives `dsh-remote` byte-for-byte: the live bundles are
+ *     requested and replayed through the running proxy, a collapsed `?` target
+ *     is shown to 404, and the ordinary login redirect still drops the
+ *     browser-session `token` parameter;
  *   - frame / sidebar / main resolution (`data-dsh-ios-frame|sidebar|main`);
  *   - a deterministic disposable session fixture: the workspace is picked
  *     through the real picker into the disposable work dir and a new session is
@@ -40,6 +45,7 @@
  */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import http from 'node:http'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -83,6 +89,10 @@ function expect(condition, message) {
 }
 function ok(name) {
   console.log(`ok   ${name}`)
+}
+/** Multi-entry module targets list every plugin; keep the messages readable. */
+function shortTarget(target) {
+  return target.length > 120 ? `${target.slice(0, 117)}...` : target
 }
 
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
@@ -153,6 +163,30 @@ async function dismissIfVisible(page, pattern) {
   }, pattern.source)
   if (clicked) await page.waitForTimeout(400)
   return clicked
+}
+
+/**
+ * Raw request-target GET through the running proxy. Built on `http.request`
+ * rather than `fetch` so the literal target (`??`, commas, `&rev=`) is written
+ * to the request line exactly as a browser sends it — `new URL()` would be the
+ * very collapsing this gate exists to detect.
+ */
+function proxyGet(proxyUrl, target, headers = {}) {
+  const { port } = new URL(proxyUrl)
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: '127.0.0.1', port, method: 'GET', path: target, headers }, (response) => {
+      const chunks = []
+      response.on('data', (chunk) => chunks.push(chunk))
+      response.on('end', () => resolve({
+        status: response.statusCode ?? 0,
+        contentType: String(response.headers['content-type'] ?? ''),
+        location: response.headers.location,
+        body: Buffer.concat(chunks),
+      }))
+    })
+    request.on('error', reject)
+    request.end()
+  })
 }
 
 /** Candidate onboarding notices (preview notice, API-key prompt) carry a
@@ -349,6 +383,16 @@ try {
   })
   const page = await context.newPage()
   page.setDefaultTimeout(30_000)
+  // R1: record every raw `/plugins/??...` module-bundle target the live
+  // candidate requests and how the proxy answered it. `new URL()` on the proxy
+  // side collapses the second `?`, so a non-200 here is the module-URL
+  // regression, not a candidate failure.
+  const moduleBundles = []
+  page.on('response', (response) => {
+    const url = response.url()
+    if (!url.startsWith(`${PROXY}/`) || !url.includes('??')) return
+    moduleBundles.push({ target: url.slice(PROXY.length), status: response.status() })
+  })
   page.on('pageerror', (error) => pageErrors.push(`pageerror: ${error.message}`))
   page.on('console', (message) => {
     if (message.type() === 'error') pageErrors.push(`console: ${message.text()}`)
@@ -363,7 +407,15 @@ try {
 
   await waitForCondition(page, () => document.title.includes('DeepSeek Harness'), 'the DeepSeek Harness document')
   await waitForCondition(page, () => document.documentElement.hasAttribute('data-dsh-ios-mobile'), 'the mobile shell attribute')
-  await settleOnboarding(page)
+  try {
+    await settleOnboarding(page)
+  } catch (error) {
+    // A collapsed multi-entry target 404s in the candidate, so a proxy that
+    // rebuilt the URL would stall here with an opaque onboarding timeout.
+    const failedBundle = moduleBundles.find((bundle) => bundle.status !== 200)
+    if (failedBundle === undefined) throw error
+    throw new Error(`dsh-remote did not preserve the raw /plugins/?? module target (${shortTarget(failedBundle.target)} -> HTTP ${failedBundle.status}); the candidate UI cannot boot without it`)
+  }
   await waitForCondition(page, () => document.querySelector('[data-dsh-ios-main]') !== null, 'frame/sidebar/main resolution')
   ok('real candidate UI loaded through dsh-remote with the Stable injection active')
 
@@ -374,6 +426,42 @@ try {
   expect(['hero', 'active'].includes(surfaces.conversation.phase),
     `unexpected conversation phase: ${surfaces.conversation.phase}`)
   ok('frame / sidebar / main surfaces resolve on the injected candidate')
+
+  // ── R1: the raw /plugins/??... module target survives dsh-remote ───────
+  expect(moduleBundles.length > 0,
+    'the live candidate requested no /plugins/?? multi-entry module bundle through dsh-remote')
+  for (const bundle of moduleBundles) {
+    expect(bundle.status === 200,
+      `multi-entry module bundle ${shortTarget(bundle.target)} returned HTTP ${bundle.status} through dsh-remote; the raw request target was not preserved`)
+  }
+  const deviceCookie = (await context.cookies(PROXY)).find((entry) => entry.name === 'dsh_token')
+  expect(deviceCookie !== undefined, 'the paired dsh_token session cookie is missing from the browser context')
+  const session = { cookie: `dsh_token=${deviceCookie.value}` }
+  const bundleTarget = moduleBundles[0].target
+  ok(`live candidate requested ${moduleBundles.length} /plugins/?? module bundle(s), e.g. ${shortTarget(bundleTarget)}`)
+
+  const rawBundle = await proxyGet(PROXY, bundleTarget, session)
+  expect(rawBundle.status === 200,
+    `replaying the raw module target ${shortTarget(bundleTarget)} through dsh-remote returned HTTP ${rawBundle.status}`)
+  expect(/javascript/.test(rawBundle.contentType),
+    `raw module bundle content-type is ${rawBundle.contentType}, expected JavaScript`)
+  expect(rawBundle.body.length > 0, 'raw module bundle is empty')
+  // Control: the same target with the second `?` collapsed is what a
+  // `new URL()`-rebuilt forward would send; it must 404, otherwise this
+  // regression check would not be load-bearing.
+  const collapsedTarget = bundleTarget.replace('??', '?')
+  const collapsedBundle = await proxyGet(PROXY, collapsedTarget, session)
+  expect(collapsedBundle.status === 404,
+    `the collapsed control ${shortTarget(collapsedTarget)} returned HTTP ${collapsedBundle.status}, expected 404`)
+  ok('raw /plugins/?? target passes through dsh-remote unmodified (collapsed ? control 404s)')
+
+  // The ordinary browser-session token path must keep being removed: the
+  // master-token login still redirects to the token-free request target.
+  const tokenLogin = await proxyGet(PROXY, `/?token=${encodeURIComponent(masterToken)}`)
+  expect(tokenLogin.status === 302, `master-token login returned HTTP ${tokenLogin.status}, expected the token redirect`)
+  expect(tokenLogin.location === '/',
+    `the login redirect kept the browser-session token parameter: ${tokenLogin.location}`)
+  ok('ordinary requests still drop the browser-session token parameter')
 
   // ── deterministic disposable fixture: workspace + new session ──────────
   const stateBeforeFixture = snapshotTree(dirs.stateDir)

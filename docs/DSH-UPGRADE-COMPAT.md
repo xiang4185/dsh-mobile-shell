@@ -263,6 +263,12 @@ scripts at the same document-start / document-end points `WKUserScript` uses.
 It then drives the real candidate UI and proves the semantic surfaces Stable
 depends on:
 
+- the raw `/plugins/??pkg-a/client.js,pkg-b/client.js&rev=...` multi-entry module
+  target survives `dsh-remote` byte-for-byte: every module bundle the live
+  candidate requests must return 200, the first observed target is replayed
+  through the running proxy with the paired device cookie (200 JavaScript), the
+  collapsed `?` control is asserted to 404 so the check stays load-bearing, and
+  the ordinary master-token login still redirects to a token-free target;
 - frame / sidebar / main resolution (`data-dsh-ios-frame|sidebar|main`);
 - a deterministic disposable session fixture: the workspace is chosen through
   the real directory picker into the disposable work directory and a new session
@@ -301,7 +307,12 @@ directly.
    multi-entry module URLs. The candidate then returned 404 for every client
    module bundle and the UI could not boot through the proxy. The proxy now
    preserves the raw request target for `??` module URLs and keeps stripping the
-   launch `token` parameter everywhere else.
+   launch `token` parameter everywhere else. `scripts/verify-dsh-mobile-surfaces.mjs`
+   pins both halves explicitly: the live module-bundle responses, a raw replay
+   of the observed target plus its collapsed 404 control, and the token-free
+   ordinary login redirect. When the proxy does rebuild the target, the gate
+   fails with the offending bundle and its HTTP status instead of the generic
+   onboarding timeout.
 2. **Composer input generation.** The Stable mobile input-intent hook only
    recognized `HTMLTextAreaElement`, so it was dead on the candidate's
    contenteditable Composer. The hook now accepts the contenteditable
