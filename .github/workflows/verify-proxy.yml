@@ -27,7 +27,15 @@ jobs:
         run: |
           node scripts/verify-version.mjs
           node scripts/verify-launcher.mjs
+          node scripts/verify-start-lan.mjs
           node scripts/verify-pairing-qr.mjs
+
+      # R4/R5: the published 0.2.1-alpha.1 candidate must pass paired UI,
+      # authenticated API, WebSocket mux, device-session, same-origin, and
+      # proxy fences with disposable state, and prove the Stable rc.8 data
+      # path stays untouched.
+      - name: Verify the published 0.2.1-alpha.1 candidate in isolation
+        run: node scripts/verify-dsh-021-alpha1.mjs --check-isolation
 
       - name: Install Web E2E dependencies
         run: npm ci --prefix proxy
@@ -35,23 +43,39 @@ jobs:
       - name: Install Web E2E browsers
         run: npx --prefix proxy playwright install --with-deps chromium webkit
 
-      - name: Install the published dsh CLI
-        run: npm install -g @deepseek-ai/dsh
+      # R1/R2/R3: the Stable iOS injection is extracted from SceneDelegate.swift
+      # and executed against the exact 0.2.1-alpha.1 candidate served through
+      # dsh-remote in Chromium, proving frame/sidebar/main, the disposable
+      # session fixture, Settings categories, body-portaled menus, and the
+      # Composer surfaces without touching the Stable rc.8 data path.
+      - name: Verify live mobile surfaces with the Stable iOS injection
+        run: node scripts/verify-dsh-mobile-surfaces.mjs
 
-      - name: Start dsh web (loopback)
+      - name: Install the published dsh CLI (pinned candidate)
+        run: npm install -g @deepseek-ai/dsh@0.2.1-alpha.1
+
+      # 0.2.x `dsh web` prints `...?token=<launch>` and gates its UI/api on it;
+      # capture that token for DSH_UPSTREAM_TOKEN so the proxy can open the
+      # upstream browser session (the proxy's own DSH_REMOTE_TOKEN stays the
+      # only client-facing credential).
+      - name: Start dsh web (loopback, pinned candidate)
         run: |
-          dsh web --port 3080 > dsh.log 2>&1 &
+          dsh web --no-open --port 3080 > dsh.log 2>&1 &
           attempt=1
-          while [ "$attempt" -le 60 ]; do
-            curl -sf -o /dev/null http://127.0.0.1:3080/ && exit 0
+          while [ "$attempt" -le 120 ]; do
+            if grep -q 'token=' dsh.log; then break; fi
             sleep 1
             attempt=$((attempt + 1))
           done
-          echo "dsh web did not become ready"; cat dsh.log; exit 1
+          token=$(sed -n 's/.*[?&]token=\([A-Za-z0-9._~-]*\).*/\1/p' dsh.log | head -n 1)
+          if [ -z "$token" ]; then echo "dsh web printed no launch token"; cat dsh.log; exit 1; fi
+          echo "DSH_UPSTREAM_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "captured the upstream launch token for the proxy handoff"
 
       - name: Start dsh-remote
         run: |
           DSH_REMOTE_TOKEN=ci-test-token-123456 node proxy/dsh-remote.mjs > proxy.log 2>&1 &
+          echo $! > proxy.pid
           sleep 1
 
       - name: Run Web E2E in Chromium, WebKit, and mobile viewports
@@ -60,8 +84,40 @@ jobs:
           E2E_BASE_URL: http://127.0.0.1:3081
         run: npm run test:e2e --prefix proxy
 
+      # E2E pairs once per browser project. Pair-rate state is deliberately
+      # process-local, so reuse of the same proxy would make the following
+      # independent HTTP matrix depend on browser retries/order. Restart only
+      # the proxy (the pinned dsh host stays up) to give the smoke suite a
+      # fresh security-rate-limit state.
+      - name: Restart dsh-remote for an isolated HTTP smoke matrix
+        run: |
+          kill "$(cat proxy.pid)" 2>/dev/null || true
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3081/healthz || true)
+            [ "$code" = "000" ] && break
+            sleep 0.2
+          done
+          DSH_REMOTE_TOKEN=ci-test-token-123456 node proxy/dsh-remote.mjs > proxy-smoke.log 2>&1 &
+          echo $! > proxy.pid
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3081/healthz || true)
+            [ "$code" = "200" ] && exit 0
+            sleep 0.2
+          done
+          echo "restarted dsh-remote did not become ready"
+          cat proxy-smoke.log
+          exit 1
+
       - name: Run the HTTP smoke matrix after browser E2E
         run: DSH_REMOTE_TOKEN=ci-test-token-123456 node scripts/verify-proxy.mjs
+
+      # The one-command launcher must pin the exact release, capture the
+      # upstream launch token, and tear its whole process tree down. Skips
+      # (with a note) only when the runner exposes no private LAN IPv4.
+      - name: Launcher integration against the pinned release
+        env:
+          DSH_START_LAN_LIVE: '1'
+        run: node scripts/verify-start-lan.mjs
 
       - name: Run the TLS variant of the matrix (self-signed test cert)
         run: |

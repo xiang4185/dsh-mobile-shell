@@ -1,6 +1,8 @@
 {
-  "schemaVersion": 1,
-  "baselineVersion": "0.1.0-rc.6",
+  "schemaVersion": 2,
+  "stableVersion": "0.1.0-rc.8",
+  "baselineVersion": "0.1.0-rc.8",
+  "candidateVersion": "0.2.1-alpha.1",
   "packages": [
     "@deepseek-ai/dsh-client-ui-layout",
     "@deepseek-ai/dsh-client-ui-sidebar",
@@ -13,14 +15,20 @@
     "@deepseek-ai/dsh-client-ui-permission-presets",
     "@deepseek-ai/dsh-client-ui-input-trigger"
   ],
+  "candidateOnlyPackages": [
+    "@deepseek-ai/dsh-client-ui-chat",
+    "@deepseek-ai/dsh-client-ui-tool"
+  ],
   "privateClassPrefixes": [
     "VOzbGW_",
     "hHd-Xa_",
     "qDHVXG_",
+    "bhn1Oq_",
     "uV2eYG_",
     "wSkVaW_",
     "pI_x6G_",
     "Sh0Q9G_",
+    "iWlSmW_",
     "cubgiG_",
     "_7KE1Ra_",
     "YDXeBa_",
@@ -29,10 +37,63 @@
     "JObwrW_",
     "mufS8W_"
   ],
+  "successorClasses": {
+    "qDHVXG_clearButton": "bhn1Oq_clearButton",
+    "qDHVXG_deleteAction": "bhn1Oq_deleteAction",
+    "qDHVXG_deleteStatus": "bhn1Oq_deleteStatus",
+    "qDHVXG_empty": "bhn1Oq_empty",
+    "qDHVXG_fade": "bhn1Oq_fade",
+    "qDHVXG_flatList": "bhn1Oq_flatList",
+    "qDHVXG_groupSection": "bhn1Oq_groupSection",
+    "qDHVXG_headerActions": "bhn1Oq_headerActions",
+    "qDHVXG_headerActionsHidden": "bhn1Oq_headerActionsHidden",
+    "qDHVXG_iconButton": "bhn1Oq_iconButton",
+    "qDHVXG_list": "bhn1Oq_list",
+    "qDHVXG_listArea": "bhn1Oq_listArea",
+    "qDHVXG_listTopDropActive": "bhn1Oq_listTopDropActive",
+    "qDHVXG_listTopDropIndicator": "bhn1Oq_listTopDropIndicator",
+    "qDHVXG_rail": "bhn1Oq_rail",
+    "qDHVXG_renameError": "bhn1Oq_renameError",
+    "qDHVXG_renameInput": "bhn1Oq_renameInput",
+    "qDHVXG_root": "bhn1Oq_root",
+    "qDHVXG_search": "bhn1Oq_search",
+    "qDHVXG_searchButton": "bhn1Oq_searchButton",
+    "qDHVXG_searchExpanded": "bhn1Oq_searchExpanded",
+    "qDHVXG_searchInput": "bhn1Oq_searchInput",
+    "qDHVXG_searchSlot": "bhn1Oq_searchSlot",
+    "qDHVXG_searchSlotExpanded": "bhn1Oq_searchSlotExpanded",
+    "qDHVXG_searchStatus": "bhn1Oq_searchStatus",
+    "qDHVXG_searchTree": "bhn1Oq_searchTree",
+    "qDHVXG_sectionHeader": "bhn1Oq_sectionHeader",
+    "qDHVXG_sectionLabel": "bhn1Oq_sectionLabel",
+    "qDHVXG_sectionLabelHidden": "bhn1Oq_sectionLabelHidden",
+    "qDHVXG_sessionOverflowButton": "bhn1Oq_sessionOverflowButton",
+    "qDHVXG_treeBody": "bhn1Oq_treeBody",
+    "qDHVXG_wide": "bhn1Oq_wide",
+    "qDHVXG_workspaceDropAfter": "bhn1Oq_workspaceDropAfter",
+    "qDHVXG_workspaceDropBefore": "bhn1Oq_workspaceDropBefore",
+    "Sh0Q9G_chevron": "iWlSmW_chevron",
+    "Sh0Q9G_chevronOpen": "iWlSmW_chevronOpen",
+    "Sh0Q9G_trigger": "iWlSmW_trigger",
+    "Sh0Q9G_triggerIcon": "iWlSmW_triggerIcon",
+    "Sh0Q9G_triggerLabel": "iWlSmW_triggerLabel"
+  },
   "optionalBreaks": [
     "hHd-Xa_railFish"
   ],
+  "semanticHooks": [
+    "data-phase",
+    "aria-selected",
+    "aria-expanded",
+    "treeitem",
+    "data-chat-anchor-key",
+    "data-composer-input"
+  ],
   "notes": {
-    "hHd-Xa_railFish": "Decorative sidebar brand asset only. rc.8 replaces it with brand/rail mark classes; absence must not block the mobile shell."
+    "hHd-Xa_railFish": "Decorative sidebar brand asset only. rc.8 replaces it with brand/rail mark classes; absence must not block the mobile shell.",
+    "moduleMoves": "0.2.1-alpha.1 re-hashed the sidebar session-list CSS module (qDHVXG_* -> bhn1Oq_*) and moved the Composer permission select out of dsh-client-ui-conversation into dsh-client-ui-permission-presets (Sh0Q9G_* -> iWlSmW_*). successorClasses records the verified 1:1 suffix mapping; the iOS shell carries both generations during the migration and the audit fails if a documented successor is missing from the candidate.",
+    "qDHVXG_searchWarning": "Dropped upstream in 0.2.1-alpha.1; the mobile shell never referenced it, so no successor is recorded.",
+    "composerInput": "0.2.1-alpha.1 renders the Composer as a contenteditable textbox (role=textbox, [data-composer-input]) where rc.8 used a <textarea>. This is a semantic successor, not only a class rename: the iOS mobile input-intent hook accepts both generations, and scripts/verify-dsh-mobile-surfaces.mjs proves the live surface plus the shipped predicate.",
+    "semanticHooks": "DOM capabilities the iOS mobile bootstrap depends on (session phase, sidebar tree selection/expansion, message scroll anchors, composer textbox). They are checked against the candidate corpus, which includes candidateOnlyPackages because 0.2.1-alpha.1 moved conversation rendering into dsh-client-ui-chat."
   }
 }

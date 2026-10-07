@@ -5,12 +5,14 @@
  * on the first failure, prints one line per case. Used by CI
  * (.github/workflows/verify-proxy.yml) and runnable locally:
  *
- *   dsh web --port 3080 &
- *   DSH_REMOTE_TOKEN=ci-test-token-123456 node proxy/dsh-remote.mjs &
+ *   npx @deepseek-ai/dsh@0.2.1-alpha.1 web --port 3080 --no-open &
+ *   DSH_REMOTE_TOKEN=ci-test-token-123456 DSH_UPSTREAM_TOKEN=<printed token> node proxy/dsh-remote.mjs &
  *   DSH_REMOTE_TOKEN=ci-test-token-123456 node scripts/verify-proxy.mjs
  *
  * Env: PROXY_URL (default http://127.0.0.1:3081), UPSTREAM_URL (default
- * http://127.0.0.1:3080), DSH_REMOTE_TOKEN (required).
+ * http://127.0.0.1:3080), DSH_REMOTE_TOKEN (required), UPSTREAM_WS_PATH
+ * (default /api/remote.mux — the 0.2.x mux route), UPSTREAM_API_METHOD
+ * (default settings/describe).
  */
 import net from 'node:net'
 import tls from 'node:tls'
@@ -18,6 +20,8 @@ import tls from 'node:tls'
 const PROXY = process.env.PROXY_URL ?? 'http://127.0.0.1:3081'
 const UPSTREAM = process.env.UPSTREAM_URL ?? 'http://127.0.0.1:3080'
 const TOKEN = process.env.DSH_REMOTE_TOKEN
+const WS_PATH = process.env.UPSTREAM_WS_PATH ?? '/api/remote.mux'
+const API_ENDPOINT = process.env.UPSTREAM_API_METHOD ?? 'settings/describe'
 if (!TOKEN) {
   console.error('DSH_REMOTE_TOKEN is required')
   process.exit(2)
@@ -109,7 +113,10 @@ function rawHttpStatus(url, request) {
 
 await check('upstream dsh web is reachable', async () => {
   const res = await fetch(`${UPSTREAM}/`)
-  expect(res.ok, `HTTP ${res.status} from ${UPSTREAM}/ — is \`dsh web\` running?`)
+  // 0.2.x answers its unauthenticated index with 401 (browser-session auth);
+  // 0.1.x serves the UI directly. Either way the host is up.
+  expect(res.ok || res.status === 401,
+    `HTTP ${res.status} from ${UPSTREAM}/ — is \`dsh web\` running?`)
 })
 
 await check('healthz answers 200 with CORS * without a token', async () => {
@@ -172,14 +179,38 @@ await check('GET / with session cookie → the real dsh web UI', async () => {
 
 await check('authenticated client connection receives proxy-backed loopback capability', async () => {
   const res = await fetch(`${PROXY}/plugins/@deepseek-ai/dsh-client-connection/client.js`, { headers: session })
+  if (res.status === 404) {
+    // 0.2.x no longer serves the rc.8 connection module at this path: its web
+    // client declares `transport.ownsHost`, so no proxy-side promotion is
+    // needed and the patch stays a no-op for rc.8 rollbacks.
+    console.log('     note: host does not serve the rc.8 connection module (0.2.x ownsHost capability)')
+    return
+  }
   expect(res.status === 200, `HTTP ${res.status}`)
   const script = await res.text()
   expect(script.includes('dsh-remote-authenticated-loopback-capability'),
     'authenticated connection module was not promoted to the proxy trust boundary')
 })
 
+const apiBody = (rpcId) => JSON.stringify({
+  type: 'client-request',
+  rpcId,
+  method: API_ENDPOINT,
+  payload: { args: {} },
+})
+/** A release-valid authenticated API answer: 200 + ok:true server envelope. */
+async function expectReleaseValidApi(response, rpcId) {
+  expect(response.status === 200, `HTTP ${response.status} — authenticated API request did not reach the host`)
+  const envelope = await response.json()
+  expect(envelope.type === 'server-response' && envelope.rpcId === rpcId,
+    `unexpected RPC envelope: ${JSON.stringify(envelope).slice(0, 200)}`)
+  expect(envelope.result?.ok === true,
+    `${API_ENDPOINT} was rejected by the host: ${JSON.stringify(envelope.result).slice(0, 300)}`)
+  return envelope
+}
+
 await check('POST /api without cookie → 401', async () => {
-  const res = await fetch(`${PROXY}/api/rpc/connection/ping`, {
+  const res = await fetch(`${PROXY}/api/${API_ENDPOINT}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: '{}',
@@ -187,28 +218,27 @@ await check('POST /api without cookie → 401', async () => {
   expect(res.status === 401, `HTTP ${res.status}`)
 })
 
-await check('authenticated /api POST passes the upstream fence (not 401/403)', async () => {
-  const res = await fetch(`${PROXY}/api/rpc/connection/ping`, {
+await check(`authenticated /api POST (${API_ENDPOINT}) returns a release-valid envelope`, async () => {
+  const res = await fetch(`${PROXY}/api/${API_ENDPOINT}`, {
     method: 'POST',
     headers: { ...session, 'content-type': 'application/json', origin: PROXY },
-    body: '{"type":"client-request","rpcId":"1","method":"ping","payload":{}}',
+    body: apiBody('1'),
   })
-  expect(res.status !== 401 && res.status !== 403, `HTTP ${res.status} — trust fence rejected`)
+  await expectReleaseValidApi(res, '1')
   if (!SECURE) {
     const frontedOrigin = new URL(PROXY)
     frontedOrigin.protocol = 'https:'
-    const behindTlsTerminator = await fetch(`${PROXY}/api/rpc/connection/ping`, {
+    const behindTlsTerminator = await fetch(`${PROXY}/api/${API_ENDPOINT}`, {
       method: 'POST',
       headers: { ...session, 'content-type': 'application/json', origin: frontedOrigin.origin },
-      body: '{"type":"client-request","rpcId":"2","method":"ping","payload":{}}',
+      body: apiBody('2'),
     })
-    expect(behindTlsTerminator.status !== 401 && behindTlsTerminator.status !== 403,
-      `HTTP ${behindTlsTerminator.status} — TLS-terminating front proxy was rejected`)
+    await expectReleaseValidApi(behindTlsTerminator, '2')
   }
 })
 
 await check('authenticated cross-origin API request → 403', async () => {
-  const res = await fetch(`${PROXY}/api/rpc/connection/ping`, {
+  const res = await fetch(`${PROXY}/api/${API_ENDPOINT}`, {
     method: 'POST',
     headers: { ...session, 'content-type': 'application/json', origin: 'https://attacker.invalid' },
     body: '{}',
@@ -217,17 +247,17 @@ await check('authenticated cross-origin API request → 403', async () => {
 })
 
 await check('WS handshake without token → 403', async () => {
-  const status = await wsHandshakeStatus(`${PROXY}/api/events.mux`, {})
+  const status = await wsHandshakeStatus(`${PROXY}${WS_PATH}`, {})
   expect(status === 403, `HTTP ${status}`)
 })
 
 await check('WS handshake with cookie → 101', async () => {
-  const status = await wsHandshakeStatus(`${PROXY}/api/events.mux`, session)
+  const status = await wsHandshakeStatus(`${PROXY}${WS_PATH}`, session)
   expect(status === 101, `HTTP ${status}`)
 })
 
 await check('cross-origin WS handshake with cookie → 403', async () => {
-  const status = await wsHandshakeStatus(`${PROXY}/api/events.mux`, {
+  const status = await wsHandshakeStatus(`${PROXY}${WS_PATH}`, {
     ...session,
     origin: 'https://attacker.invalid',
   })
@@ -235,7 +265,7 @@ await check('cross-origin WS handshake with cookie → 403', async () => {
 })
 
 await check('malformed Host WS handshake → 400 and proxy remains alive', async () => {
-  const status = await wsHandshakeStatus(`${PROXY}/api/events.mux`, { host: '[' })
+  const status = await wsHandshakeStatus(`${PROXY}${WS_PATH}`, { host: '[' })
   expect(status === 400, `HTTP ${status}`)
   const health = await fetch(`${PROXY}/healthz`)
   expect(health.status === 200, `proxy died after malformed WS Host: HTTP ${health.status}`)
@@ -325,7 +355,7 @@ await check('tampered device token → 401', async () => {
   const [prefix, payload, signature] = deviceToken.split('.')
   const tamperedSignature = (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1)
   const tampered = `${prefix}.${payload}.${tamperedSignature}`
-  const res = await fetch(`${PROXY}/api/rpc/connection/ping`, {
+  const res = await fetch(`${PROXY}/api/${API_ENDPOINT}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${tampered}`, 'content-type': 'application/json' },
     body: '{}',

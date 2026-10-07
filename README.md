@@ -71,13 +71,17 @@ Paired clients receive a scoped device credential. The master token is not store
 
 ## Manual startup
 
-To manage the processes yourself:
+To manage the processes yourself (host pinned to the verified candidate release):
 
 ```sh
-npx @deepseek-ai/dsh web --port 3080
+# 1) Host on loopback; it prints `...?token=<launch>`
+npx --yes @deepseek-ai/dsh@0.2.1-alpha.1 web --port 3080 --no-open
 
+# 2) Proxy; hand it the printed launch token so it can open the upstream
+#    browser session. Omit DSH_UPSTREAM_TOKEN for an rc.8 host.
 DSH_REMOTE_TOKEN="$(openssl rand -hex 16)" \
 DSH_TARGET_PORT=3080 \
+DSH_UPSTREAM_TOKEN=<launch-token> \
 node proxy/dsh-remote.mjs
 ```
 
@@ -123,13 +127,16 @@ See [`docs/02-build-and-dependencies.md`](docs/02-build-and-dependencies.md) and
 
 The current Stable release is **v1.1.1**. It has been validated against DSH `0.1.0-rc.8`, including real iOS-device testing.
 
-DSH uses CSS Modules and internal UI contracts, so an upstream upgrade is not treated as a simple package-version bump. The repository provides a compatibility audit:
+The next candidate is the published `@deepseek-ai/dsh@0.2.1-alpha.1`. It is **not promoted**: rc.8 stays the Stable host and its directory remains the rollback source. The one-command LAN launcher starts exactly that pinned candidate (`npx --yes @deepseek-ai/dsh@0.2.1-alpha.1`, or a `DSH_BIN` whose `--version` reports the same release), captures the host's upstream launch token, and hands it to `dsh-remote` as `DSH_UPSTREAM_TOKEN` so paired phones reach the authenticated UI without ever seeing the upstream token. After a rollback, unset `DSH_UPSTREAM_TOKEN`.
+
+DSH uses CSS Modules and internal UI contracts, so an upstream upgrade is not treated as a simple package-version bump. The repository provides a compatibility audit and a live candidate verifier:
 
 ```sh
 npm run audit:dsh-compat
+node scripts/verify-dsh-021-alpha1.mjs --check-isolation
 ```
 
-Candidate DSH versions must pass the static contract audit, an isolated Candidate Host, runtime browser checks, CI, and any relevant true-device gates before promotion. See [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md).
+The live verifier installs the exact published release into a disposable directory and runs the host with `HOME`/`DSH_HOME`/`XDG_*`/`TMPDIR` inside one temporary root, using a fresh proxy master token. `--check-isolation` proves by metadata snapshot that the Stable `~/.dsh` data (sessions, settings, credentials, workspace) and the tracked worktree are untouched, and it records the rollback behavior. Candidate DSH versions must pass the static contract audit, this isolated candidate-host verification, runtime browser checks, CI, and any relevant true-device gates before promotion. See [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md).
 
 ## Known issues
 

@@ -8,8 +8,14 @@
     "verify:version": "node scripts/verify-version.mjs",
     "package:web": "npm run verify:version && node scripts/package-web.mjs",
     "verify:web": "npm run verify:version && node scripts/verify-web-artifact.mjs",
-    "audit:dsh-compat": "node scripts/audit-dsh-compat.mjs",
+    "audit:dsh-compat": "node scripts/audit-dsh-compat.mjs --baseline 0.1.0-rc.8 --candidate 0.2.1-alpha.1",
+    "verify:dsh-candidate": "node scripts/verify-dsh-021-alpha1.mjs --check-isolation",
+    "verify:dsh-mobile-surfaces": "node scripts/verify-dsh-mobile-surfaces.mjs",
     "start:web": "node dist/web/start.mjs"
+  },
+  "dsh": {
+    "stable": "0.1.0-rc.8",
+    "candidate": "0.2.1-alpha.1"
   },
   "engines": {
     "node": ">=20"
