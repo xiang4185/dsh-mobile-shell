@@ -75,6 +75,7 @@ jobs:
       - name: Start dsh-remote
         run: |
           DSH_REMOTE_TOKEN=ci-test-token-123456 node proxy/dsh-remote.mjs > proxy.log 2>&1 &
+          echo $! > proxy.pid
           sleep 1
 
       - name: Run Web E2E in Chromium, WebKit, and mobile viewports
@@ -82,6 +83,30 @@ jobs:
           DSH_REMOTE_TOKEN: ci-test-token-123456
           E2E_BASE_URL: http://127.0.0.1:3081
         run: npm run test:e2e --prefix proxy
+
+      # E2E pairs once per browser project. Pair-rate state is deliberately
+      # process-local, so reuse of the same proxy would make the following
+      # independent HTTP matrix depend on browser retries/order. Restart only
+      # the proxy (the pinned dsh host stays up) to give the smoke suite a
+      # fresh security-rate-limit state.
+      - name: Restart dsh-remote for an isolated HTTP smoke matrix
+        run: |
+          kill "$(cat proxy.pid)" 2>/dev/null || true
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3081/healthz || true)
+            [ "$code" = "000" ] && break
+            sleep 0.2
+          done
+          DSH_REMOTE_TOKEN=ci-test-token-123456 node proxy/dsh-remote.mjs > proxy-smoke.log 2>&1 &
+          echo $! > proxy.pid
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3081/healthz || true)
+            [ "$code" = "200" ] && exit 0
+            sleep 0.2
+          done
+          echo "restarted dsh-remote did not become ready"
+          cat proxy-smoke.log
+          exit 1
 
       - name: Run the HTTP smoke matrix after browser E2E
         run: DSH_REMOTE_TOKEN=ci-test-token-123456 node scripts/verify-proxy.mjs
