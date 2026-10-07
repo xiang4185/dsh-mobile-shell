@@ -2,6 +2,24 @@
 
 This file contains issues that are **known at the current Stable freeze and intentionally not fixed by speculative patches**. Read it together with [`IOS-STABLE-BASELINE.md`](IOS-STABLE-BASELINE.md).
 
+## DSH 0.2.1-alpha.1 candidate: graceful-degradation exceptions
+
+**Status:** Accepted for the candidate. Not a release blocker while rc.8 is Stable.
+
+The candidate contract audit (`node scripts/audit-dsh-compat.mjs --baseline 0.1.0-rc.8 --candidate 0.2.1-alpha.1`)
+reports no contract-breaking removals; every class the iOS shell styles or
+queries still resolves, either directly or through a documented successor
+(`qDHVXG_* -> bhn1Oq_*`, `Sh0Q9G_trigger -> iWlSmW_trigger`). Two shell
+selectors were already absent from the rc.8 corpus and stay absent on the
+candidate:
+
+- `.nL4_yW_sessionLogButton` — the optional session-log action is simply not
+  offered when the host does not render that control;
+- `.mufS8W_card` — legacy card styling that matches nothing on rc.8 or 0.2.1.
+
+Both degrade to "the capability is not shown", never to a broken drawer,
+Composer, or keyboard path. Do not add speculative selectors for them.
+
 ## iOS: keyboard remains open after a successful send
 
 **Status:** Open / deferred. Not a release blocker for `v1.1.1`.

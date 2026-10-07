@@ -21,11 +21,12 @@ node scripts/start-lan.mjs
 ### 高级：分开启动主机与代理
 
 ```sh
-# 1) 主机照常启动（保持默认 loopback）
-npx @deepseek-ai/dsh web --port 3080
+# 1) 主机照常启动（保持默认 loopback，固定为已验证的候选版本）
+npx --yes @deepseek-ai/dsh@0.2.1-alpha.1 web --port 3080 --no-open
 
-# 2) 启动代理（令牌至少 8 位，建议 openssl rand -hex 16）
-DSH_REMOTE_TOKEN=<token> node proxy/dsh-remote.mjs
+# 2) 启动代理（令牌至少 8 位，建议 openssl rand -hex 16）；
+#    0.2.x 主机把打印出的 `?token=` 作为 DSH_UPSTREAM_TOKEN 交给代理，rc.8 主机不设置
+DSH_REMOTE_TOKEN=<token> DSH_UPSTREAM_TOKEN=<launch-token> node proxy/dsh-remote.mjs
 # dsh-remote: http://0.0.0.0:3081 -> http://127.0.0.1:3080 (token required)
 # dsh-remote: pairing code 847291 — single use, expires in 10 min
 # dsh-remote: pairing link http://<private-lan-ip>:3081/launch#pair=<pair-code>
@@ -59,6 +60,7 @@ DSH_REMOTE_TOKEN=<token> DSH_TLS_CERT=/path/fullchain.pem DSH_TLS_KEY=/path/priv
 | `DSH_REMOTE_TOKEN` | （必填） | 仅主机持有的主令牌；常量时间比较，同时作为设备令牌签名密钥 |
 | `DSH_LISTEN_HOST` / `DSH_LISTEN_PORT` | `0.0.0.0` / `3081` | 代理监听地址 |
 | `DSH_TARGET_HOST` / `DSH_TARGET_PORT` | `127.0.0.1` / `3080` | 上游 dsh web 地址 |
+| `DSH_UPSTREAM_TOKEN` | （可选） | 上游 dsh >= 0.2 的启动令牌（`dsh web` 打印的 `?token=`）。设置后代理在回环上交换一次会话 Cookie，并代表已认证设备访问需要浏览器会话的 UI/API；令牌与 Cookie 都只留在主机内存中，不会发给手机。0.1.x 主机无浏览器鉴权，保持不设置即可 |
 | `DSH_TLS_CERT` / `DSH_TLS_KEY` | （可选，须同设） | PEM 证书/私钥路径，设置后按 HTTPS 监听 |
 | `DSH_LAUNCHER` | 默认 `../app/www/index.html` | 启动页路径；`off` 关闭 Web 模式；显式路径不可读则启动失败 |
 | `DSH_PUBLIC_URL` | 自动发现局域网 IPv4 | 二维码/配对链接使用的公开 Origin；只接受无路径、查询、fragment 和凭据的 HTTP(S) Origin |
@@ -69,6 +71,7 @@ DSH_REMOTE_TOKEN=<token> DSH_TLS_CERT=/path/fullchain.pem DSH_TLS_KEY=/path/priv
 - 所有 HTTP 请求与 WS 握手先过令牌门（HttpOnly 设备 Cookie / Bearer；`?token=` 仅保留为兼容入口且会先降权为设备令牌），未通过一律 401/403——例外是 Web 模式（ADR-0007）：未授权的 `GET /` 与 `/launch` 返回静态启动页（不含秘密），`/api`、WS 与 UI 资产仍全部有门。
 - 浏览器配对响应直接种 HttpOnly 设备 Cookie，不把主令牌或设备令牌交给页面 JavaScript；请求 Origin 与 Host 不属于同一 authority 时，已认证 API/WS 也会拒绝（允许 Caddy/Nginx 在前方终止 TLS）。
 - 转发时把 Host 改写为 loopback 并剥离 Origin，使上游 `/api` 信任围栏按 loopback 语义通过；跨站防护由令牌门承担。
+- DSH 0.2 起官方 `dsh web` 自己会鉴权：进程启动时打印 `?token=` 启动令牌，UI 与 `/api` 只认由它签发的 authority 绑定 Cookie。设置 `DSH_UPSTREAM_TOKEN` 后，代理在回环上完成一次令牌交换并把得到的会话 Cookie 只留在主机内存，转发 HTTP/WS 时自动携带；浏览器/手机仍只持有本代理的设备令牌，上游令牌不会外泄。未设置时按原样转发，适用于没有浏览器鉴权的 0.1.x 主机。
 - DSH rc.8 起，官方前端会把非 loopback 浏览器的 Settings 配置面直接标记为不可用，因为裸 `dsh web` 没有远程认证层。对**已经通过本代理令牌门和同源检查**的 UI 连接，代理会在返回 `dsh-client-connection` 模块时把该连接提升到 loopback capability，使模型/插件等 Settings 继续通过同一受保护代理访问 Host；直接访问裸 `dsh web` 的官方限制不变。
 - `GET /healthz` 无需令牌（`Access-Control-Allow-Origin: *`），只回答"代理活着"，供 App 启动页预检。
 
@@ -118,8 +121,10 @@ The helper starts `dsh web` on loopback and this proxy, selects one private LAN 
 ### Advanced: start the host and proxy separately
 
 ```sh
-npx @deepseek-ai/dsh web --port 3080            # host stays on loopback
-DSH_REMOTE_TOKEN=<token> node proxy/dsh-remote.mjs
+# host stays on loopback, pinned to the verified release
+npx --yes @deepseek-ai/dsh@0.2.1-alpha.1 web --port 3080 --no-open
+# 0.2.x prints `...?token=<launch>`; pass it as DSH_UPSTREAM_TOKEN
+DSH_REMOTE_TOKEN=<token> DSH_UPSTREAM_TOKEN=<launch-token> node proxy/dsh-remote.mjs
 # prints an initial code, pairing link, and terminal QR
 ```
 

@@ -15,7 +15,7 @@ This roadmap lists work that remains useful after the current Stable release. It
 | Android shell | Stable artifact | APK produced by the release workflow |
 | iOS shell | Stable artifact | Simulator package + unsigned device IPA; distribution signing remains user-managed |
 | iOS mobile UX | Stable with known issue | Native keyboard viewport, Drawer, Settings, Composer adaptations; see `KNOWN-ISSUES.md` |
-| DSH compatibility | Stable process | rc.8 validated; future upgrades use Candidate Host + contract audit |
+| DSH compatibility | Stable process | rc.8 Stable; `0.2.1-alpha.1` candidate implemented and verified in isolation (not promoted) |
 | Device administration | Partial | Device credentials exist; full user-facing device lifecycle management is still limited |
 | Internationalization / accessibility | Partial | Core DSH UI follows upstream; shell/launcher coverage can be improved |
 

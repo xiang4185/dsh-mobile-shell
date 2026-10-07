@@ -332,16 +332,16 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           min-height: 0 !important;
           overflow: hidden !important;
         }
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_listArea,
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_treeBody,
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_list {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_listArea, .bhn1Oq_listArea),
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_treeBody, .bhn1Oq_treeBody),
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_list, .bhn1Oq_list) {
           min-height: 0 !important;
         }
 
         /* Mobile hierarchy for the workspace browser: search stays a primary
            utility on the title row; display/add controls become a labelled
            secondary management row instead of three same-weight tiny icons. */
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_sectionHeader {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_sectionHeader, .bhn1Oq_sectionHeader) {
           box-sizing: border-box !important;
           display: grid !important;
           grid-template-columns: minmax(0, 1fr) 44px !important;
@@ -357,7 +357,7 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           overflow: visible !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_sectionLabel {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_sectionLabel, .bhn1Oq_sectionLabel) {
           grid-area: label !important;
           min-width: 0 !important;
           max-width: none !important;
@@ -367,7 +367,7 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           color: var(--dsw-alias-label-secondary, #667085) !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_searchSlot {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_searchSlot, .bhn1Oq_searchSlot) {
           grid-area: search !important;
           justify-self: end !important;
           width: 44px !important;
@@ -376,7 +376,7 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           padding: 0 !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_searchButton {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_searchButton, .bhn1Oq_searchButton) {
           box-sizing: border-box !important;
           width: 44px !important;
           height: 44px !important;
@@ -387,7 +387,7 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           background: rgba(255, 255, 255, 0.46) !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_headerActions {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) {
           grid-area: actions !important;
           display: grid !important;
           grid-template-columns: 1fr 1fr !important;
@@ -398,12 +398,12 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           visibility: visible !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_headerActions > * {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) > * {
           min-width: 0 !important;
           width: 100% !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_headerActions .qDHVXG_iconButton {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) :is(.qDHVXG_iconButton, .bhn1Oq_iconButton) {
           box-sizing: border-box !important;
           display: inline-flex !important;
           align-items: center !important;
@@ -422,44 +422,44 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           white-space: nowrap !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_headerActions .qDHVXG_iconButton[aria-label="视图选项"]::after {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) :is(.qDHVXG_iconButton, .bhn1Oq_iconButton)[aria-label="视图选项"]::after {
           content: "视图与排序";
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_headerActions .qDHVXG_iconButton[aria-label="View options"]::after {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) :is(.qDHVXG_iconButton, .bhn1Oq_iconButton)[aria-label="View options"]::after {
           content: "View & sort";
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_headerActions .qDHVXG_iconButton[aria-label="添加工作区"]::after {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) :is(.qDHVXG_iconButton, .bhn1Oq_iconButton)[aria-label="添加工作区"]::after {
           content: "添加工作区";
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_headerActions .qDHVXG_iconButton[aria-label="Add workspace"]::after {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) :is(.qDHVXG_iconButton, .bhn1Oq_iconButton)[aria-label="Add workspace"]::after {
           content: "Add workspace";
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_sectionHeader:has(.qDHVXG_searchSlotExpanded) {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_sectionHeader, .bhn1Oq_sectionHeader):has(:is(.qDHVXG_searchSlotExpanded, .bhn1Oq_searchSlotExpanded)) {
           grid-template-columns: minmax(0, 1fr) !important;
           grid-template-areas: "search" !important;
           min-height: 52px !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_sectionHeader:has(.qDHVXG_searchSlotExpanded) .qDHVXG_sectionLabel,
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_sectionHeader:has(.qDHVXG_searchSlotExpanded) .qDHVXG_headerActions {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_sectionHeader, .bhn1Oq_sectionHeader):has(:is(.qDHVXG_searchSlotExpanded, .bhn1Oq_searchSlotExpanded)) :is(.qDHVXG_sectionLabel, .bhn1Oq_sectionLabel),
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_sectionHeader, .bhn1Oq_sectionHeader):has(:is(.qDHVXG_searchSlotExpanded, .bhn1Oq_searchSlotExpanded)) :is(.qDHVXG_headerActions, .bhn1Oq_headerActions) {
           display: none !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_searchSlotExpanded {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_searchSlotExpanded, .bhn1Oq_searchSlotExpanded) {
           width: 100% !important;
           max-width: none !important;
           justify-self: stretch !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_searchSlotExpanded .qDHVXG_search {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_searchSlotExpanded, .bhn1Oq_searchSlotExpanded) :is(.qDHVXG_search, .bhn1Oq_search) {
           width: 100% !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_searchSlotExpanded .qDHVXG_searchInput {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_searchSlotExpanded, .bhn1Oq_searchSlotExpanded) :is(.qDHVXG_searchInput, .bhn1Oq_searchInput) {
           box-sizing: border-box !important;
           height: 40px !important;
           min-height: 40px !important;
@@ -469,8 +469,8 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
         html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .YDXeBa_projectRow,
         html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .YDXeBa_sessionRow,
         html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .YDXeBa_searchResultRow,
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_sectionHeader,
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_searchButton {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_sectionHeader, .bhn1Oq_sectionHeader),
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_searchButton, .bhn1Oq_searchButton) {
           min-height: 44px !important;
           touch-action: manipulation !important;
         }
@@ -565,15 +565,15 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           display: none !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_listArea,
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_treeBody,
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_list {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_listArea, .bhn1Oq_listArea),
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_treeBody, .bhn1Oq_treeBody),
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_list, .bhn1Oq_list) {
           background: transparent !important;
           border: 0 !important;
           box-shadow: none !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] .qDHVXG_fade {
+        html[data-dsh-ios-mobile] [data-dsh-ios-sidebar] :is(.qDHVXG_fade, .bhn1Oq_fade) {
           display: none !important;
           background: none !important;
         }
@@ -688,18 +688,18 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
         }
 
         html[data-dsh-ios-mobile] [data-dsh-ios-main] .uV2eYG_add,
-        html[data-dsh-ios-mobile] [data-dsh-ios-main] .Sh0Q9G_trigger,
+        html[data-dsh-ios-mobile] [data-dsh-ios-main] :is(.Sh0Q9G_trigger, .iWlSmW_trigger),
         html[data-dsh-ios-mobile] [data-dsh-ios-main] .cubgiG_seat,
         html[data-dsh-ios-mobile] [data-dsh-ios-main] ._7KE1Ra_trigger {
           min-width: 44px !important;
           min-height: 44px !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-main] .Sh0Q9G_trigger {
+        html[data-dsh-ios-mobile] [data-dsh-ios-main] :is(.Sh0Q9G_trigger, .iWlSmW_trigger) {
           padding-inline: 8px 4px !important;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-main] .Sh0Q9G_trigger,
+        html[data-dsh-ios-mobile] [data-dsh-ios-main] :is(.Sh0Q9G_trigger, .iWlSmW_trigger),
         html[data-dsh-ios-mobile] [data-dsh-ios-main] .cubgiG_seat,
         html[data-dsh-ios-mobile] [data-dsh-ios-main] ._7KE1Ra_trigger {
           position: relative !important;
@@ -1773,7 +1773,7 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           if (!rawTarget || !root.hasAttribute('data-dsh-ios-sidebar-open') ||
               root.hasAttribute('data-dsh-ios-settings-open') || !sidebar?.contains(rawTarget)) return
           const isDrawerLocalControl = (target, control) => {
-            if (target.closest('[role="menu"], [role="listbox"], [role="dialog"], .qDHVXG_sectionHeader, .qDHVXG_search, .qDHVXG_headerActions, .qDHVXG_rowActions, .YDXeBa_rowActions')) return true
+            if (target.closest('[role="menu"], [role="listbox"], [role="dialog"], :is(.qDHVXG_sectionHeader, .bhn1Oq_sectionHeader), :is(.qDHVXG_search, .bhn1Oq_search), :is(.qDHVXG_headerActions, .bhn1Oq_headerActions), :is(.qDHVXG_rowActions), .YDXeBa_rowActions')) return true
             if (target.closest('[role="treeitem"][aria-expanded]')) return true
             if (!(control instanceof HTMLElement)) return false
             return control.hasAttribute('aria-haspopup') || control.hasAttribute('aria-expanded')
@@ -2057,7 +2057,7 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           pointer-events: none;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-main] .Sh0Q9G_trigger,
+        html[data-dsh-ios-mobile] [data-dsh-ios-main] :is(.Sh0Q9G_trigger, .iWlSmW_trigger),
         html[data-dsh-ios-mobile] [data-dsh-ios-main] .cubgiG_seat,
         html[data-dsh-ios-mobile] [data-dsh-ios-main] ._7KE1Ra_trigger {
           color: var(--dsh-ios-ocean-deep) !important;
@@ -2075,7 +2075,7 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
           pointer-events: none;
         }
 
-        html[data-dsh-ios-mobile] [data-dsh-ios-main] .Sh0Q9G_trigger::before {
+        html[data-dsh-ios-mobile] [data-dsh-ios-main] :is(.Sh0Q9G_trigger, .iWlSmW_trigger)::before {
           content: none !important;
           display: none !important;
           border: 0 !important;

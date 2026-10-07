@@ -60,6 +60,18 @@
  * authenticated HTML document gets a small `getRandomValues()`-based fallback
  * before the upstream modules load. Native implementations are never replaced.
  *
+ * Upstream browser session (dsh >= 0.2): 0.2.x `dsh web` mints a per-process
+ * launch token, prints `<url>/?token=...`, and only serves its UI and `/api`
+ * to a browser holding the authority-bound signed cookie it issues for that
+ * token. `DSH_UPSTREAM_TOKEN` is that launch token (scripts/start-lan.mjs
+ * captures it from `dsh web` stdout). When it is set, the proxy exchanges it
+ * once on loopback, keeps the resulting `dsh-auth-*` cookie in memory, and
+ * attaches it to every forwarded request. The token/cookie never leave the
+ * host: clients still authenticate only with the proxy's own master/device
+ * credential, and the proxy's token gate remains the network trust boundary.
+ * Without DSH_UPSTREAM_TOKEN the proxy forwards verbatim, which is correct
+ * for a 0.1.x host that has no browser authentication of its own.
+ *
  * Env:
  *   DSH_REMOTE_TOKEN (required)  shared secret; compared in constant time
  *   DSH_LISTEN_HOST   default 0.0.0.0      DSH_LISTEN_PORT  default 3081
@@ -68,6 +80,7 @@
  *   DSH_LAUNCHER      (optional) launcher HTML path, or "off"
  *   DSH_PUBLIC_URL    (optional) public proxy origin used in pairing links
  *   DSH_PAIR_QR       default on in a TTY; set "off" to hide terminal QR
+ *   DSH_UPSTREAM_TOKEN (optional) `dsh web` launch token for 0.2.x hosts
  */
 import http from 'node:http'
 import https from 'node:https'
@@ -146,9 +159,98 @@ const RANDOM_UUID_POLYFILL = `<script ${RANDOM_UUID_POLYFILL_MARKER}>
 // passed the device/master-token gate plus same-origin check, and the upstream
 // request is then fenced back onto loopback. Promote only the authenticated
 // proxy-served connection handle to loopback capability; direct dsh web keeps
-// the upstream behavior unchanged.
+// the upstream behavior unchanged. dsh 0.2.x no longer needs this patch (its
+// web client declares `transport.ownsHost`, so the pattern below simply does
+// not match); it stays for deployments still pointed at an rc.x host.
 const AUTHENTICATED_CONNECTION_MARKER = 'dsh-remote-authenticated-loopback-capability'
 const CONNECTION_LOOPBACK_PATTERN = /isLoopback:\s*pageLocation === void 0 \|\| isLoopbackHostname\(pageLocation\.hostname\),/
+
+// ── upstream browser session (dsh >= 0.2) ────────────────────────────────
+// 0.2.x `dsh web` prints `http://127.0.0.1:<port>/?token=<launch>` and gates
+// its UI plus /api on the authority-bound `dsh-auth-*` cookie that token
+// mints. DSH_UPSTREAM_TOKEN carries that launch token here; the proxy
+// exchanges it over loopback once and reuses the cookie for every forwarded
+// request (HTTP and WS). The browser never sees either value.
+const UPSTREAM_TOKEN = process.env.DSH_UPSTREAM_TOKEN
+const UPSTREAM_COOKIE_PREFIX = 'dsh-auth-'
+const UPSTREAM_EXCHANGE_TIMEOUT_MS = 10_000
+let upstreamSessionCookie
+/** Set when the host answered the exchange but issued no session cookie (0.1.x). */
+let upstreamSessionUnsupported = false
+let upstreamSessionPending
+
+function upstreamSessionEnabled() {
+  return typeof UPSTREAM_TOKEN === 'string' && UPSTREAM_TOKEN.length > 0
+}
+
+/** Exchange the launch token for the host's authority-bound browser cookie. */
+function requestUpstreamSession() {
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      host: TARGET_HOST,
+      port: TARGET_PORT,
+      method: 'GET',
+      path: `/?token=${encodeURIComponent(UPSTREAM_TOKEN)}`,
+      headers: { host: TARGET_AUTHORITY, 'accept-encoding': 'identity', connection: 'close' },
+    }, (response) => {
+      const cookies = response.headers['set-cookie'] ?? []
+      response.resume()
+      const session = cookies
+        .map((entry) => entry.split(';', 1)[0])
+        .find((entry) => entry.startsWith(UPSTREAM_COOKIE_PREFIX))
+      if (session === undefined) {
+        reject(Object.assign(
+          new Error(`upstream issued no ${UPSTREAM_COOKIE_PREFIX} cookie (HTTP ${response.statusCode ?? 0}); host does not use browser authentication`),
+          { unsupported: true },
+        ))
+        return
+      }
+      resolve(session)
+    })
+    request.setTimeout(UPSTREAM_EXCHANGE_TIMEOUT_MS, () => request.destroy(new Error('upstream launch-token exchange timed out')))
+    request.on('error', reject)
+    request.end()
+  })
+}
+
+/** The cached upstream session cookie, establishing it on first use. */
+async function upstreamSession() {
+  if (!upstreamSessionEnabled() || upstreamSessionUnsupported) return undefined
+  if (upstreamSessionCookie !== undefined) return upstreamSessionCookie
+  if (upstreamSessionPending === undefined) {
+    upstreamSessionPending = requestUpstreamSession()
+      .then((cookie) => {
+        upstreamSessionCookie = cookie
+        console.log('dsh-remote: authenticated upstream browser session established')
+        return cookie
+      })
+      .catch((error) => {
+        if (error.unsupported) {
+          upstreamSessionUnsupported = true
+          console.log(`dsh-remote: upstream browser session not used — ${error.message}`)
+        } else {
+          console.warn(`dsh-remote: upstream browser session unavailable — ${error.message}`)
+        }
+        return undefined
+      })
+      .finally(() => { upstreamSessionPending = undefined })
+  }
+  return upstreamSessionPending
+}
+
+/**
+ * Cookie header for the upstream request: the client's own host-issued cookie
+ * wins when present (it is bound to the same loopback authority the proxy
+ * forwards as Host); otherwise the proxy-held session is attached.
+ */
+function upstreamCookieHeader(req, session = upstreamSessionCookie) {
+  const clientCookie = req.headers.cookie
+  if (session === undefined) return clientCookie
+  const clientHasSession = typeof clientCookie === 'string'
+    && clientCookie.split(';').some((part) => part.trim().startsWith(UPSTREAM_COOKIE_PREFIX))
+  if (clientHasSession) return clientCookie
+  return clientCookie === undefined ? session : `${clientCookie}; ${session}`
+}
 
 function authenticatedClientConnectionPath(path) {
   try {
@@ -364,13 +466,16 @@ function reject(res, code, message) {
 }
 
 /** Headers safe to forward upstream: loopback Host, no Origin (see file header). */
-function upstreamHeaders(req, { htmlDocument = false } = {}) {
+function upstreamHeaders(req, { htmlDocument = false, session } = {}) {
   const headers = { ...req.headers }
   headers.host = TARGET_AUTHORITY
   delete headers.origin
   delete headers.connection
   delete headers['keep-alive']
   delete headers['transfer-encoding']
+  const cookie = upstreamCookieHeader(req, session)
+  if (cookie === undefined) delete headers.cookie
+  else headers.cookie = cookie
   if (htmlDocument) {
     // The HTML must be buffered and rewritten. Avoid compressed/conditional
     // responses, which otherwise cannot be safely patched in this proxy.
@@ -386,10 +491,13 @@ function upstreamHeaders(req, { htmlDocument = false } = {}) {
  * (connection/upgrade/sec-websocket-*) must survive verbatim — dropping
  * `connection: Upgrade` turns the handshake into a plain GET (upstream 426).
  */
-function upgradeHeaders(req) {
+function upgradeHeaders(req, session) {
   const headers = { ...req.headers }
   headers.host = TARGET_AUTHORITY
   delete headers.origin
+  const cookie = upstreamCookieHeader(req, session)
+  if (cookie === undefined) delete headers.cookie
+  else headers.cookie = cookie
   return headers
 }
 
@@ -413,7 +521,7 @@ function injectRandomUuidPolyfill(body) {
   return { body: Buffer.from(patched, 'utf8'), changed: true }
 }
 
-function forwardHttp(req, res, path) {
+function forwardHttp(req, res, path, session) {
   const htmlDocument = req.method !== 'HEAD' && frontendDocumentPath(path)
   const authenticatedConnectionModule = req.method !== 'HEAD' && authenticatedClientConnectionPath(path)
   const upstream = http.request({
@@ -421,9 +529,15 @@ function forwardHttp(req, res, path) {
     port: TARGET_PORT,
     method: req.method,
     path,
-    headers: upstreamHeaders(req, { htmlDocument }),
+    headers: upstreamHeaders(req, { htmlDocument, session }),
   })
   upstream.on('response', (upRes) => {
+    if ((upRes.statusCode ?? 0) === 401 && session !== undefined && upstreamSessionEnabled()) {
+      // The host rejected the proxy-held cookie (rotated credentials, or a
+      // restarted host with a new secret): drop it so the next request
+      // re-exchanges the launch token instead of 401ing forever.
+      upstreamSessionCookie = undefined
+    }
     const contentType = String(upRes.headers['content-type'] ?? '')
     const patchHtml = htmlDocument
       && (upRes.statusCode ?? 500) >= 200
@@ -688,10 +802,10 @@ async function handle(req, res) {
     reject(res, 403, '来源不允许')
     return
   }
-  forwardHttp(req, res, stripTokenParam(url))
+  forwardHttp(req, res, stripTokenParam(url), await upstreamSession())
 }
 
-server.on('upgrade', (req, socket, head) => {
+function handleUpgrade(req, socket, head) {
   const url = requestUrl(req, TLS ? 'https' : 'http')
   if (!url) {
     socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
@@ -706,36 +820,47 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy()
     return
   }
-  const upstream = http.request({
-    host: TARGET_HOST,
-    port: TARGET_PORT,
-    method: 'GET',
-    path: stripTokenParam(url),
-    headers: upgradeHeaders(req),
-  })
-  upstream.on('upgrade', (upRes, upSocket, upHead) => {
-    const lines = Object.entries(upRes.headers)
-      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}\r\n`)
-      .join('')
-    socket.write(`HTTP/1.1 101 Switching Protocols\r\n${lines}\r\n`)
-    if (upHead?.length) socket.write(upHead)
-    upSocket.pipe(socket)
-    socket.pipe(upSocket)
-    if (head?.length) upSocket.write(head)
-    upSocket.on('error', () => socket.destroy())
-    socket.on('error', () => upSocket.destroy())
-  })
-  upstream.on('response', (upRes) => {
-    // Upgrade refused upstream: surface the status and tear down.
-    socket.write(`HTTP/1.1 ${upRes.statusCode} Upgrade Refused\r\n\r\n`)
-    socket.destroy()
-    upRes.resume()
-  })
-  upstream.on('error', () => {
+  const sessionPromise = upstreamSession()
+  Promise.resolve(sessionPromise).then((session) => {
+    if (socket.destroyed) return
+    const upstream = http.request({
+      host: TARGET_HOST,
+      port: TARGET_PORT,
+      method: 'GET',
+      path: stripTokenParam(url),
+      headers: upgradeHeaders(req, session),
+    })
+    upstream.on('upgrade', (upRes, upSocket, upHead) => {
+      const lines = Object.entries(upRes.headers)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}\r\n`)
+        .join('')
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\n${lines}\r\n`)
+      if (upHead?.length) socket.write(upHead)
+      upSocket.pipe(socket)
+      socket.pipe(upSocket)
+      if (head?.length) upSocket.write(head)
+      upSocket.on('error', () => socket.destroy())
+      socket.on('error', () => upSocket.destroy())
+    })
+    upstream.on('response', (upRes) => {
+      // Upgrade refused upstream: surface the status and tear down.
+      socket.write(`HTTP/1.1 ${upRes.statusCode} Upgrade Refused\r\n\r\n`)
+      socket.destroy()
+      upRes.resume()
+    })
+    upstream.on('error', () => {
+      socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+      socket.destroy()
+    })
+    upstream.end()
+  }).catch(() => {
     socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
     socket.destroy()
   })
-  upstream.end()
+}
+
+server.on('upgrade', (req, socket, head) => {
+  handleUpgrade(req, socket, head)
 })
 
 server.on('clientError', (_error, socket) => {
@@ -749,6 +874,9 @@ server.timeout = 0
 
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   console.log(`dsh-remote: ${SCHEME}://${LISTEN_HOST}:${LISTEN_PORT} -> http://${TARGET_AUTHORITY} (token required)`)
+  if (upstreamSessionEnabled()) {
+    console.log('dsh-remote: upstream launch-token bridge armed (DSH_UPSTREAM_TOKEN set)')
+  }
   announcePairingCode(mintPairCode())
   if (process.stdin.isTTY) console.log('dsh-remote: enter n and press Return for a new pairing QR')
   console.log('dsh-remote: mint more with  curl -X POST -H "Authorization: Bearer $DSH_REMOTE_TOKEN" <this-url>/pair/new')
