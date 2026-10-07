@@ -211,6 +211,15 @@ packages by the same script and by `scripts/verify-dsh-021-alpha1.mjs`.
    `transport.ownsHost`, so `ctx.connection.isLoopback` is already true through
    the served web app. The rc.8 proxy patch for that handle remains in place
    (it is a no-op on 0.2.x) so an rc.8 rollback keeps working.
+6. **Composer input generation.** The Composer textbox is now a contenteditable
+   element carrying `role=textbox` and `[data-composer-input]`; rc.8 rendered a
+   `<textarea>`. The iOS mobile input-intent hook accepts both generations, and
+   `compat/dsh-ui-contract.json` records the new semantic hook.
+7. **Multi-entry client module URLs.** The served HTML loads client bundles
+   through esbuild-style `/plugins/??pkg-a/client.js,pkg-b/client.js&rev=...`
+   URLs. A reverse proxy must forward that raw request target: re-serializing it
+   through `new URL()` collapses the second `?` and the candidate 404s every
+   client module bundle, so the UI never boots behind the proxy.
 
 ### Proxy launch-token bridge
 
@@ -240,11 +249,71 @@ forwards verbatim, which is the correct behaviour for an rc.8 host.
   session-log action is simply not offered. This is the only justified
   graceful-degradation exception.
 
+### Live mobile-surface gate (Stable iOS injection)
+
+```bash
+node scripts/verify-dsh-mobile-surfaces.mjs
+```
+
+The gate extracts `viewportBootstrap`, `mobileLayoutBootstrap`, and
+`mobileThemeBootstrap` from `app/ios/App/App/SceneDelegate.swift` — the actual
+shipped injection, with no test-only copy — loads the exact 0.2.1-alpha.1 graph
+through `dsh-remote` in a real Chromium iPhone viewport, and executes the
+scripts at the same document-start / document-end points `WKUserScript` uses.
+It then drives the real candidate UI and proves the semantic surfaces Stable
+depends on:
+
+- frame / sidebar / main resolution (`data-dsh-ios-frame|sidebar|main`);
+- a deterministic disposable session fixture: the workspace is chosen through
+  the real directory picker into the disposable work directory and a new session
+  is created through the real sidebar, leaving an active
+  `role="treeitem"[aria-selected="true"]`, with the session-restoring gate
+  cleared for a stable hero/active conversation phase;
+- Settings open/close, the four expected categories (General, Models, Built-in
+  plugins, Agent presets), the General-only current-host entry, and the
+  Models-tab state;
+- body-portaled menus layered above the iOS drawer (`z=1100 > 1000`): the drawer
+  View options menu plus the model / permission / agent-preset Composer menus;
+- Composer textbox, add, send, model, permission, and agent-preset controls with
+  ~44pt touch targets, and the iOS attachment entry hook
+  (`data-dsh-ios-attachment`) applied to the candidate add control;
+- documented successor classes (`bhn1Oq_*`, `iWlSmW_*`) resolve in the live DOM
+  while the documented graceful degradations (`hHd-Xa_railFish`,
+  `nL4_yW_sessionLogButton`, `mufS8W_card`) stay absent and non-blocking.
+
+Isolation matches the candidate verifier: disposable `HOME`/`DSH_HOME`/`XDG_*`/
+`TMPDIR`, an independent random proxy master token plus the candidate's own
+launch token, and before/after snapshots proving `~/.dsh` and the tracked
+worktree are unchanged.
+
+The first run provisions its browser toolchain inside
+`$TMPDIR/dsh-mobile-shell-surfaces-runtime` (pinned Playwright 1.59.1, the
+Chromium headless shell, and — in minimal containers without a working apt
+database — the pinned Ubuntu runtime libraries that build needs). Later runs
+reuse that cache, and nothing is ever written inside the repository. When
+`proxy/node_modules/playwright` exists (CI installs it), the gate uses it
+directly.
+
+### Compatibility repairs found by the gate
+
+1. **Proxy module-URL passthrough.** `dsh-remote` rebuilt every forwarded
+   target through `new URL()`, which collapsed the second `?` of the candidate's
+   multi-entry module URLs. The candidate then returned 404 for every client
+   module bundle and the UI could not boot through the proxy. The proxy now
+   preserves the raw request target for `??` module URLs and keeps stripping the
+   launch `token` parameter everywhere else.
+2. **Composer input generation.** The Stable mobile input-intent hook only
+   recognized `HTMLTextAreaElement`, so it was dead on the candidate's
+   contenteditable Composer. The hook now accepts the contenteditable
+   `[data-composer-input]` textbox in addition to the rc.8 `<textarea>`; no
+   keyboard/bootstrap architecture changed.
+
 ### Candidate verification and isolation
 
 ```bash
 node scripts/verify-dsh-021-alpha1.mjs                # live paired UI/API/WS/device/proxy checks
 node scripts/verify-dsh-021-alpha1.mjs --check-isolation
+node scripts/verify-dsh-mobile-surfaces.mjs           # Stable iOS injection against the live candidate
 ```
 
 The verifier installs the exact graph into a disposable cache directory and
@@ -299,6 +368,8 @@ For every candidate DSH version:
    - model / permission / Agent preset selectors
    - Composer input / add / send
    - attachment entry and drop path
+   `node scripts/verify-dsh-mobile-surfaces.mjs` automates this pass with the
+   shipped iOS injection on a disposable candidate fixture.
 5. Run the existing iOS static gate.
 6. Run the true-device gate from `IOS-STABLE-BASELINE.md` when the candidate changes a UI surface used by iOS.
 7. Promote candidate -> Stable host only after all relevant gates pass.

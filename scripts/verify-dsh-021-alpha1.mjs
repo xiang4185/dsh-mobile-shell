@@ -29,20 +29,33 @@
  * Env: DSH_CANDIDATE_DIR (reuse an exact install), DSH_VERIFY_NODE_BIN.
  */
 import assert from 'node:assert/strict'
-import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
-import os from 'node:os'
 import path from 'node:path'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { shutdownChildren, stopTree } from './start-lan.mjs'
 import { verifyExactGraph } from './lib/dsh-graph.mjs'
+import {
+  CANDIDATE_VERSION,
+  STABLE_HOME,
+  candidateHostEnv,
+  candidateProxyEnv,
+  candidateRootDir,
+  cookieHeader,
+  createDisposableRoot,
+  ensureCandidateInstall,
+  freePort,
+  gitState,
+  randomMasterToken,
+  snapshotTree,
+  waitForHttp,
+  waitForLaunchToken,
+} from './lib/dsh-candidate.mjs'
+
+export { CANDIDATE_VERSION }
 
 const REPO = fileURLToPath(new URL('../', import.meta.url))
-export const CANDIDATE_VERSION = '0.2.1-alpha.1'
-const CANDIDATE_PACKAGE = '@deepseek-ai/dsh'
-const STABLE_HOME = path.join(os.homedir(), '.dsh')
 
 const args = process.argv.slice(2)
 let checkIsolation = false
@@ -65,112 +78,7 @@ function ok(name) {
   console.log(`ok   ${name}`)
 }
 
-// ── exact candidate graph ────────────────────────────────────────────────
-function candidateRootDir() {
-  return process.env.DSH_CANDIDATE_DIR
-    ?? path.join(os.tmpdir(), 'dsh-mobile-shell-candidate', CANDIDATE_VERSION)
-}
-
-function ensureCandidateInstall(root) {
-  const bin = path.join(root, 'node_modules', CANDIDATE_PACKAGE, 'lib', 'bin.js')
-  if (fs.existsSync(bin)) {
-    const { packages, exact } = verifyExactGraph(root, CANDIDATE_VERSION)
-    if (exact) {
-      console.log(`ok   reusing exact candidate install ${root} (${packages.length} @deepseek-ai/dsh* packages at ${CANDIDATE_VERSION})`)
-      return bin
-    }
-    console.log(`dsh-021-alpha1: candidate install at ${root} is not an exact ${CANDIDATE_VERSION} graph; rebuilding`)
-    fs.rmSync(root, { recursive: true, force: true })
-  }
-
-  console.log(`dsh-021-alpha1: preparing exact ${CANDIDATE_VERSION} candidate graph in ${root}`)
-  fs.mkdirSync(root, { recursive: true })
-  // The prepared manifest is reusable: only run the (slow) dependency-graph
-  // walk when this workspace has never been prepared for the candidate.
-  const preparedManifest = path.join(root, 'CANDIDATE.json')
-  if (!fs.existsSync(preparedManifest)) {
-    const prepare = spawnSync(process.execPath, [
-      path.join(REPO, 'scripts', 'prepare-dsh-candidate.mjs'),
-      CANDIDATE_VERSION,
-      '--output', root,
-    ], { stdio: 'inherit', cwd: REPO })
-    if (prepare.status !== 0) throw new Error(`prepare-dsh-candidate.mjs failed with status ${prepare.status}`)
-  }
-
-  const install = spawnSync('npm', ['install', '--ignore-scripts', '--legacy-peer-deps', '--no-audit', '--no-fund'], {
-    cwd: root,
-    stdio: 'inherit',
-    env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS ?? '--max-old-space-size=4096' },
-  })
-  if (install.status !== 0) throw new Error(`candidate install failed with status ${install.status}`)
-  return bin
-}
-
-// ── disposable isolation root ────────────────────────────────────────────
-/**
- * Metadata-only snapshot: names, types, sizes, and mtimes. Files are never
- * opened, so the Stable credential file is not read while proving isolation.
- */
-function snapshotTree(root) {
-  const entries = []
-  const visit = (dir, relative) => {
-    let children
-    try {
-      children = fs.readdirSync(dir, { withFileTypes: true })
-    } catch (error) {
-      if (error.code === 'ENOENT') return
-      throw error
-    }
-    for (const child of children.sort((a, b) => a.name.localeCompare(b.name))) {
-      const childPath = path.join(dir, child.name)
-      const childRelative = relative === '' ? child.name : `${relative}/${child.name}`
-      const stat = fs.lstatSync(childPath)
-      entries.push(`${childRelative}|${child.isDirectory() ? 'dir' : 'file'}|${stat.size}|${stat.mtimeMs}`)
-      if (child.isDirectory()) visit(childPath, childRelative)
-    }
-  }
-  if (!fs.existsSync(root)) return ['<absent>']
-  visit(root, '')
-  return entries
-}
-
-function gitState() {
-  const status = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: REPO, encoding: 'utf8' })
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' })
-  return { status: status.stdout ?? '', head: (head.stdout ?? '').trim() }
-}
-
-// ── HTTP/WS helpers ──────────────────────────────────────────────────────
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer()
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address()
-      server.close(() => resolve(port))
-    })
-  })
-}
-
-async function waitForHttp(url, timeoutMs) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(1_000) })
-      await response.body?.cancel()
-      return response
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-  throw new Error(`${url} did not become reachable`)
-}
-
-function cookieHeader(response) {
-  const cookies = response.headers.getSetCookie?.() ?? []
-  const session = cookies.map((entry) => entry.split(';', 1)[0]).find((entry) => entry.startsWith('dsh_token='))
-  return session === undefined ? undefined : { cookie: session }
-}
-
+// ── WS helper ────────────────────────────────────────────────────────────
 function wsHandshakeStatus(url, headers) {
   return new Promise((resolve, reject) => {
     const target = new URL(url)
@@ -202,40 +110,27 @@ function wsHandshakeStatus(url, headers) {
 }
 
 // ── main ─────────────────────────────────────────────────────────────────
-const binPath = ensureCandidateInstall(candidateRootDir())
+const binPath = ensureCandidateInstall(candidateRootDir(), {
+  repo: REPO,
+  label: 'dsh-021-alpha1',
+  verifyExactGraph,
+})
 const { packages, mismatch } = verifyExactGraph(candidateRootDir(), CANDIDATE_VERSION)
 expect(packages.length > 0, 'candidate graph is empty')
 expect(mismatch.length === 0,
   `mixed DSH prerelease stack detected: ${mismatch.slice(0, 5).map((entry) => `${entry.name}@${entry.version}`).join(', ')}`)
 console.log(`ok   exact candidate graph: ${packages.length}/${packages.length} @deepseek-ai/dsh* packages at ${CANDIDATE_VERSION}`)
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-021-alpha1-verify-'))
-const homeDir = path.join(root, 'home')
-const stateDir = path.join(root, 'dsh-home')
-const workDir = path.join(root, 'work')
-const tmpDir = path.join(root, 'tmp')
-for (const dir of [homeDir, stateDir, workDir, tmpDir]) fs.mkdirSync(dir, { recursive: true })
+const { root, homeDir, stateDir, workDir, tmpDir } = createDisposableRoot('dsh-021-alpha1-verify-')
 
 const hostPort = await freePort()
 const proxyPort = await freePort()
-const masterToken = crypto.randomBytes(32).toString('hex')
+const masterToken = randomMasterToken()
 const stableBefore = snapshotTree(STABLE_HOME)
-const gitBefore = gitState()
+const gitBefore = gitState(REPO)
 const runStart = Date.now()
 
-const hostEnv = { ...process.env,
-  HOME: homeDir,
-  DSH_HOME: stateDir,
-  TMPDIR: tmpDir,
-  XDG_CONFIG_HOME: path.join(homeDir, '.config'),
-  XDG_CACHE_HOME: path.join(homeDir, '.cache'),
-  XDG_DATA_HOME: path.join(homeDir, '.local', 'share'),
-  XDG_STATE_HOME: path.join(homeDir, '.local', 'state'),
-  NO_COLOR: '1',
-}
-for (const leaked of ['DSH_REMOTE_TOKEN', 'DSH_UPSTREAM_TOKEN', 'DSH_PUBLIC_URL', 'DSH_TLS_CERT', 'DSH_TLS_KEY', 'DSH_LAUNCHER', 'DSH_LISTEN_HOST', 'DSH_LISTEN_PORT']) {
-  delete hostEnv[leaked]
-}
+const hostEnv = candidateHostEnv({ homeDir, stateDir, tmpDir })
 
 const children = []
 let upstreamHost
@@ -248,46 +143,13 @@ try {
     detached: process.platform !== 'win32',
   })
   children.push(upstreamHost)
-  let hostOutput = ''
-  upstreamHost.stdout.on('data', (chunk) => { hostOutput += chunk.toString('utf8') })
-  upstreamHost.stderr.on('data', (chunk) => { hostOutput += chunk.toString('utf8') })
-  const launchToken = await new Promise((resolve, reject) => {
-    const deadline = Date.now() + 90_000
-    const timer = setInterval(() => {
-      const match = /[?&]token=([A-Za-z0-9._~-]+)/.exec(hostOutput)
-      if (match) {
-        clearInterval(timer)
-        resolve(match[1])
-        return
-      }
-      if (upstreamHost.exitCode !== null) {
-        clearInterval(timer)
-        reject(new Error(`candidate host exited early:\n${hostOutput}`))
-        return
-      }
-      if (Date.now() > deadline) {
-        clearInterval(timer)
-        reject(new Error(`candidate host never printed a launch token:\n${hostOutput}`))
-      }
-    }, 100)
-  })
+  const { token: launchToken } = await waitForLaunchToken(upstreamHost, { timeoutMs: 90_000 })
   console.log(`ok   published ${CANDIDATE_VERSION} host started on 127.0.0.1:${hostPort} (isolated DSH_HOME)`)
   await waitForHttp(`http://127.0.0.1:${hostPort}/`, 30_000)
 
   proxy = spawn(process.execPath, [path.join(REPO, 'proxy', 'dsh-remote.mjs')], {
     cwd: REPO,
-    env: { ...process.env,
-      HOME: homeDir,
-      DSH_HOME: stateDir,
-      DSH_REMOTE_TOKEN: masterToken,
-      DSH_UPSTREAM_TOKEN: launchToken,
-      DSH_LISTEN_HOST: '127.0.0.1',
-      DSH_LISTEN_PORT: String(proxyPort),
-      DSH_TARGET_HOST: '127.0.0.1',
-      DSH_TARGET_PORT: String(hostPort),
-      DSH_PAIR_QR: 'off',
-      NO_COLOR: '1',
-    },
+    env: candidateProxyEnv({ homeDir, stateDir, masterToken, upstreamToken: launchToken, hostPort, proxyPort }),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   })
@@ -469,7 +331,7 @@ try {
     const stableAfter = snapshotTree(STABLE_HOME)
     assert.deepStrictEqual(stableAfter, stableBefore,
       `Stable rc.8 data path ${STABLE_HOME} changed during candidate verification`)
-    const gitAfter = gitState()
+    const gitAfter = gitState(REPO)
     assert.strictEqual(gitAfter.status, gitBefore.status, 'tracked worktree files changed during candidate verification')
     assert.strictEqual(gitAfter.head, gitBefore.head, 'worktree HEAD changed during candidate verification')
     expect(fs.existsSync(path.join(candidateRootDir(), 'CANDIDATE.json')) || process.env.DSH_CANDIDATE_DIR !== undefined,

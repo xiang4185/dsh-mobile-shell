@@ -1,26 +1,14 @@
 import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
+import { SCENE_DELEGATE_PATH, extractIosEmbeddedScripts } from './lib/ios-embedded-js.mjs'
 
-const sceneDelegatePath = resolve('app/ios/App/App/SceneDelegate.swift')
-const source = readFileSync(sceneDelegatePath, 'utf8')
-const names = ['viewportBootstrap', 'mobileLayoutBootstrap', 'mobileThemeBootstrap']
+const scripts = extractIosEmbeddedScripts(readFileSync(SCENE_DELEGATE_PATH, 'utf8'))
 const workdir = mkdtempSync(join(tmpdir(), 'dsh-ios-js-'))
 
 try {
-  for (const name of names) {
-    const marker = `private static let ${name} = \"\"\"`
-    const startMarker = source.indexOf(marker)
-    if (startMarker < 0) throw new Error(`missing embedded script: ${name}`)
-
-    const bodyStart = source.indexOf('\n', startMarker + marker.length)
-    if (bodyStart < 0) throw new Error(`missing embedded script body: ${name}`)
-
-    const bodyEnd = source.indexOf('\n    \"\"\"', bodyStart + 1)
-    if (bodyEnd < 0) throw new Error(`unterminated embedded script: ${name}`)
-
-    const script = source.slice(bodyStart + 1, bodyEnd)
+  for (const [name, script] of Object.entries(scripts)) {
     const path = join(workdir, `${name}.js`)
     writeFileSync(path, script)
 

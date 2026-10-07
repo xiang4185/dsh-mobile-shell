@@ -43,6 +43,14 @@ jobs:
       - name: Install Web E2E browsers
         run: npx --prefix proxy playwright install --with-deps chromium webkit
 
+      # R1/R2/R3: the Stable iOS injection is extracted from SceneDelegate.swift
+      # and executed against the exact 0.2.1-alpha.1 candidate served through
+      # dsh-remote in Chromium, proving frame/sidebar/main, the disposable
+      # session fixture, Settings categories, body-portaled menus, and the
+      # Composer surfaces without touching the Stable rc.8 data path.
+      - name: Verify live mobile surfaces with the Stable iOS injection
+        run: node scripts/verify-dsh-mobile-surfaces.mjs
+
       - name: Install the published dsh CLI (pinned candidate)
         run: npm install -g @deepseek-ai/dsh@0.2.1-alpha.1
 

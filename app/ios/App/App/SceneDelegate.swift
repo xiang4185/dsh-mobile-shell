@@ -1367,7 +1367,11 @@ final class DSHBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
         const composerInputFrom = (target) => {
           if (!(target instanceof Element)) return null
           const input = dshCompat.closest(target, 'composerInput')
-          return input instanceof HTMLTextAreaElement ? input : null
+          if (input instanceof HTMLTextAreaElement) return input
+          // 0.2.1-alpha.1 renders the Composer as a contenteditable textbox
+          // (`[data-composer-input]`); rc.8 used a <textarea>. Both are the
+          // same semantic surface for the mobile input-intent hook.
+          return input instanceof HTMLElement && input.isContentEditable ? input : null
         }
         const handleInputIntent = (event) => {
           if (!mobileActive() || composerInputFrom(event.target) === null) return

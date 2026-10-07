@@ -448,7 +448,17 @@ function sessionCookie(value) {
   return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${DEVICE_TOKEN_TTL_MS / 1000}${secure}`
 }
 
-function stripTokenParam(url) {
+/**
+ * Drop only the browser-session `token` parameter before forwarding upstream.
+ *
+ * The raw request target must be preserved for esbuild-style multi-entry module
+ * URLs (`/plugins/??pkg-a/client.js,pkg-b/client.js&rev=...`). Re-serializing
+ * them through `new URL()` collapses the second `?`, which makes the
+ * 0.2.1-alpha.1 candidate 404 every client module bundle and the whole UI never
+ * boots. Those URLs never carry the launch token, so they pass through verbatim.
+ */
+function stripTokenParam(url, raw = url.pathname + url.search) {
+  if (raw.includes('??') && !/(?:^|[?&])token=/.test(raw)) return raw
   url.searchParams.delete('token')
   return url.pathname + (url.searchParams.size ? url.search : '')
 }
@@ -783,7 +793,7 @@ async function handle(req, res) {
   if (accessTokenOk(queryToken)) {
     // Login: plant the session cookie and bounce to the token-free URL.
     const sessionToken = tokenOk(queryToken) ? mintDeviceToken() : queryToken
-    res.writeHead(302, { location: stripTokenParam(url), 'set-cookie': sessionCookie(sessionToken) })
+    res.writeHead(302, { location: stripTokenParam(url, req.url ?? '/'), 'set-cookie': sessionCookie(sessionToken) })
     res.end()
     return
   }
@@ -802,7 +812,7 @@ async function handle(req, res) {
     reject(res, 403, '来源不允许')
     return
   }
-  forwardHttp(req, res, stripTokenParam(url), await upstreamSession())
+  forwardHttp(req, res, stripTokenParam(url, req.url ?? '/'), await upstreamSession())
 }
 
 function handleUpgrade(req, socket, head) {
@@ -827,7 +837,7 @@ function handleUpgrade(req, socket, head) {
       host: TARGET_HOST,
       port: TARGET_PORT,
       method: 'GET',
-      path: stripTokenParam(url),
+      path: stripTokenParam(url, req.url ?? '/'),
       headers: upgradeHeaders(req, session),
     })
     upstream.on('upgrade', (upRes, upSocket, upHead) => {

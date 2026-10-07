@@ -86,12 +86,14 @@
     "aria-selected",
     "aria-expanded",
     "treeitem",
-    "data-chat-anchor-key"
+    "data-chat-anchor-key",
+    "data-composer-input"
   ],
   "notes": {
     "hHd-Xa_railFish": "Decorative sidebar brand asset only. rc.8 replaces it with brand/rail mark classes; absence must not block the mobile shell.",
     "moduleMoves": "0.2.1-alpha.1 re-hashed the sidebar session-list CSS module (qDHVXG_* -> bhn1Oq_*) and moved the Composer permission select out of dsh-client-ui-conversation into dsh-client-ui-permission-presets (Sh0Q9G_* -> iWlSmW_*). successorClasses records the verified 1:1 suffix mapping; the iOS shell carries both generations during the migration and the audit fails if a documented successor is missing from the candidate.",
     "qDHVXG_searchWarning": "Dropped upstream in 0.2.1-alpha.1; the mobile shell never referenced it, so no successor is recorded.",
-    "semanticHooks": "DOM capabilities the iOS mobile bootstrap depends on (session phase, sidebar tree selection/expansion, message scroll anchors). They are checked against the candidate corpus, which includes candidateOnlyPackages because 0.2.1-alpha.1 moved conversation rendering into dsh-client-ui-chat."
+    "composerInput": "0.2.1-alpha.1 renders the Composer as a contenteditable textbox (role=textbox, [data-composer-input]) where rc.8 used a <textarea>. This is a semantic successor, not only a class rename: the iOS mobile input-intent hook accepts both generations, and scripts/verify-dsh-mobile-surfaces.mjs proves the live surface plus the shipped predicate.",
+    "semanticHooks": "DOM capabilities the iOS mobile bootstrap depends on (session phase, sidebar tree selection/expansion, message scroll anchors, composer textbox). They are checked against the candidate corpus, which includes candidateOnlyPackages because 0.2.1-alpha.1 moved conversation rendering into dsh-client-ui-chat."
   }
 }
