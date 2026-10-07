@@ -71,13 +71,17 @@ DSH_LAN_IP=<private-lan-ip> node scripts/start-lan.mjs
 
 ## 手动启动
 
-需要自行管理进程时，可以分别启动 Harness 与代理：
+需要自行管理进程时，可以分别启动 Harness 与代理（Harness 固定为已验证的候选版本）：
 
 ```sh
-npx @deepseek-ai/dsh web --port 3080
+# 1) 主机只监听 loopback，并打印 `...?token=<launch>`
+npx --yes @deepseek-ai/dsh@0.2.1-alpha.1 web --port 3080 --no-open
 
+# 2) 代理：把打印出的启动令牌交给它，用于建立上游浏览器会话；
+#    对接 rc.8 主机时不要设置 DSH_UPSTREAM_TOKEN。
 DSH_REMOTE_TOKEN="$(openssl rand -hex 16)" \
 DSH_TARGET_PORT=3080 \
+DSH_UPSTREAM_TOKEN=<launch-token> \
 node proxy/dsh-remote.mjs
 ```
 
@@ -123,13 +127,16 @@ xcodebuild \
 
 当前 Stable 为 **v1.1.1**。该版本已完成 DSH `0.1.0-rc.8` 的真实运行与 iOS 真机兼容验证。
 
-上游 DSH 使用 CSS Modules 和内部 UI contract，升级不能只改一个 npm 版本。项目提供：
+下一个候选版本是已发布的 `@deepseek-ai/dsh@0.2.1-alpha.1`，本次**不提升**：rc.8 仍是 Stable Host，其目录继续作为回滚源。一键局域网启动器只启动这个精确固定的候选版本（`npx --yes @deepseek-ai/dsh@0.2.1-alpha.1`，或通过 `DSH_BIN` 指定一个 `--version` 与之一致的二进制），捕获上游启动令牌并作为 `DSH_UPSTREAM_TOKEN` 交给 `dsh-remote`，让已配对手机访问需要上游会话的 UI，同时绝不把上游令牌暴露给手机。回滚后请取消设置 `DSH_UPSTREAM_TOKEN`。
+
+上游 DSH 使用 CSS Modules 和内部 UI contract，升级不能只改一个 npm 版本。项目提供静态审计与真实候选版本验证脚本：
 
 ```sh
 npm run audit:dsh-compat
+node scripts/verify-dsh-021-alpha1.mjs --check-isolation
 ```
 
-候选版本必须经过静态 contract audit、独立 Candidate Host、浏览器运行验证、CI 与必要的真机 Gate 后才能提升为 Stable。维护流程见 [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md)。
+真实验证会把精确版本的发布包安装到临时目录，并把候选 Host 的 `HOME` / `DSH_HOME` / `XDG_*` / `TMPDIR` 全部限制在一个一次性根目录内，代理使用全新随机主令牌；`--check-isolation` 通过元数据快照证明 Stable `~/.dsh`（会话、设置、凭据、工作区）与工作树未被改动，并记录回滚行为。候选版本必须经过静态 contract audit、该隔离验证、浏览器运行验证、CI 与必要的真机 Gate 后才能提升为 Stable。维护流程见 [`docs/DSH-UPGRADE-COMPAT.md`](docs/DSH-UPGRADE-COMPAT.md)。
 
 ## 已知问题
 

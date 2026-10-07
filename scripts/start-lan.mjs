@@ -6,9 +6,14 @@
  *   3. tap the confirmation button.
  *
  * The helper deliberately binds dsh-remote to one private LAN IPv4 address,
- * creates a fresh 256-bit master token in memory, and starts dsh on loopback.
- * It never accepts a public URL, wildcard listen address, or inherited TLS
- * configuration: use proxy/dsh-remote.mjs directly for advanced deployments.
+ * creates a fresh 256-bit master token in memory, and starts the pinned
+ * @deepseek-ai/dsh@0.2.1-alpha.1 release on loopback. dsh >= 0.2 prints a
+ * per-process launch token and gates its own UI/api on it, so this launcher
+ * captures that token from `dsh web` stdout and hands it to the proxy as
+ * DSH_UPSTREAM_TOKEN (proxy/dsh-remote.mjs exchanges it on loopback). The
+ * token never reaches the phone. It never accepts a public URL, wildcard
+ * listen address, or inherited TLS configuration: use proxy/dsh-remote.mjs
+ * directly for advanced deployments.
  */
 import crypto from 'node:crypto'
 import dgram from 'node:dgram'
@@ -21,6 +26,12 @@ import { spawn, spawnSync } from 'node:child_process'
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const DEFAULT_TARGET_PORT = 3080
 const DEFAULT_LISTEN_PORT = 3081
+/** Cold `npx` has to download the whole pinned release before it prints its URL. */
+const DEFAULT_TOKEN_TIMEOUT_MS = 300_000
+
+/** The exact released Harness version this launcher is verified against. */
+export const DSH_RELEASE = '@deepseek-ai/dsh@0.2.1-alpha.1'
+const DSH_RELEASE_VERSION = DSH_RELEASE.slice(DSH_RELEASE.lastIndexOf('@') + 1)
 
 export function isPrivateLanIPv4(address) {
   const octets = String(address).split('.').map((part) => Number(part))
@@ -95,18 +106,52 @@ export async function choosePrivateLanIPv4(explicit = process.env.DSH_LAN_IP) {
   throw new Error('no private LAN IPv4 address found; connect to Wi-Fi/Ethernet or set DSH_LAN_IP')
 }
 
-function commandAvailable(command) {
-  const checker = process.platform === 'win32' ? 'where' : 'which'
-  return spawnSync(checker, [command], { stdio: 'ignore' }).status === 0
-}
-
-function resolveDshCommand() {
-  if (process.env.DSH_BIN) return { command: process.env.DSH_BIN, args: [] }
-  if (commandAvailable('dsh')) return { command: 'dsh', args: [] }
+/**
+ * Resolve the exact Harness release to launch.
+ *
+ * An installed `dsh` is deliberately NOT preferred: its version is unknown and
+ * the documented one-command path must run the release this repo is verified
+ * against. The default is npx pinned to DSH_RELEASE; an explicit DSH_BIN
+ * override is accepted only after `--version` confirms the same release.
+ */
+export function resolveDshCommand(env = process.env) {
+  if (env.DSH_BIN) {
+    const probe = spawnSync(env.DSH_BIN, ['--version'], { encoding: 'utf8' })
+    const reported = `${probe.stdout ?? ''}${probe.stderr ?? ''}`.trim()
+    if (probe.status !== 0 || !reported.includes(DSH_RELEASE_VERSION)) {
+      throw new Error(`DSH_BIN must be ${DSH_RELEASE}; got ${reported || 'no version output'}`)
+    }
+    return { command: env.DSH_BIN, args: [], pinned: true }
+  }
   return {
     command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    args: ['--yes', '@deepseek-ai/dsh'],
+    args: ['--yes', DSH_RELEASE],
+    pinned: false,
   }
+}
+
+/** Extract the upstream launch token from a `dsh web` output line. */
+export function parseUpstreamLaunchToken(text) {
+  return /https?:\/\/\S+?[?&]token=([A-Za-z0-9._~-]+)/.exec(String(text))?.[1]
+}
+
+/** Environment for the LAN proxy: private LAN bind + upstream token handoff. */
+export function buildProxyEnv(baseEnv, { masterToken, upstreamToken, lanIp, listenPort, targetPort }) {
+  const proxyEnv = { ...baseEnv,
+    DSH_REMOTE_TOKEN: masterToken,
+    DSH_UPSTREAM_TOKEN: upstreamToken,
+    DSH_LISTEN_HOST: lanIp,
+    DSH_LISTEN_PORT: String(listenPort),
+    DSH_TARGET_HOST: '127.0.0.1',
+    DSH_TARGET_PORT: String(targetPort),
+    DSH_PAIR_QR: 'on',
+  }
+  delete proxyEnv.DSH_PUBLIC_URL
+  delete proxyEnv.DSH_TLS_CERT
+  delete proxyEnv.DSH_TLS_KEY
+  delete proxyEnv.DSH_LAUNCHER
+  delete proxyEnv.NO_COLOR
+  return proxyEnv
 }
 
 function waitForTcp(host, port, child, timeoutMs) {
@@ -179,8 +224,85 @@ async function waitForUpstream(port, child) {
   throw new Error(`dsh web did not become ready on 127.0.0.1:${port}`)
 }
 
-function stop(child) {
-  if (child && child.exitCode === null) child.kill('SIGTERM')
+/**
+ * Mirror `dsh web` stdout while watching for its launch URL. The pinned
+ * release prints `dsh web: <url>?token=...` on stdout; that token is what the
+ * proxy exchanges for the upstream browser session (DSH_UPSTREAM_TOKEN).
+ */
+export function watchForLaunchToken(stream, child, timeoutMs = DEFAULT_TOKEN_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    let pending = ''
+    let settled = false
+    const finish = (error, token) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      stream.off('data', onData)
+      error ? reject(error) : resolve(token)
+    }
+    const onData = (chunk) => {
+      process.stdout.write(chunk)
+      pending += chunk.toString('utf8')
+      const token = parseUpstreamLaunchToken(pending)
+      if (token !== undefined) {
+        finish(undefined, token)
+        return
+      }
+      if (pending.length > 64 * 1024) pending = pending.slice(-4 * 1024)
+    }
+    const timer = setTimeout(() => finish(new Error(`dsh did not print an upstream launch token within ${Math.round(timeoutMs / 1000)}s`)), timeoutMs)
+    timer.unref()
+    stream.on('data', onData)
+    stream.once('end', () => finish(new Error('dsh stdout ended before printing an upstream launch token')))
+    child.once('exit', () => finish(new Error('dsh exited before printing an upstream launch token')))
+  })
+}
+
+/**
+ * Signal a spawned child's whole process tree. `npx` runs `dsh web` as a
+ * grandchild, so signalling only the direct child would leave the host
+ * listening on the loopback target port after Ctrl-C.
+ */
+export function stopTree(child, signal = 'SIGTERM') {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return false
+  try {
+    if (process.platform === 'win32') return child.kill(signal)
+    process.kill(-child.pid, signal)
+    return true
+  } catch (error) {
+    if (error.code !== 'ESRCH') {
+      console.error(`start-lan: failed to signal process group ${child.pid}: ${error.message}`)
+    }
+    return false
+  }
+}
+
+function waitForExit(children, timeoutMs) {
+  const pending = children.filter((child) => child.exitCode === null && child.signalCode === null)
+  if (pending.length === 0) return Promise.resolve()
+  return new Promise((resolve) => {
+    let remaining = pending.length
+    const finish = () => {
+      remaining -= 1
+      if (remaining <= 0) {
+        clearTimeout(timer)
+        resolve()
+      }
+    }
+    const timer = setTimeout(resolve, timeoutMs)
+    timer.unref?.()
+    for (const child of pending) child.once('exit', finish)
+  })
+}
+
+/** SIGTERM the whole tree, then SIGKILL whatever ignored it. */
+export async function shutdownChildren(children) {
+  const signalled = children.filter((child) => stopTree(child, 'SIGTERM'))
+  if (signalled.length === 0) return
+  await waitForExit(signalled, 2_000)
+  const stubborn = signalled.filter((child) => child.exitCode === null && child.signalCode === null)
+  for (const child of stubborn) stopTree(child, 'SIGKILL')
+  await waitForExit(stubborn, 2_000)
 }
 
 async function main() {
@@ -202,9 +324,9 @@ async function main() {
   const dshCommand = resolveDshCommand()
   console.log(`start-lan: using private LAN address ${lanIp}`)
   console.log(`start-lan: starting dsh web on 127.0.0.1:${targetPort}`)
-  if (dshCommand.command === 'npx' || dshCommand.command === 'npx.cmd') {
-    console.log('start-lan: dsh was not found locally; npx will install @deepseek-ai/dsh if needed')
-  }
+  console.log(dshCommand.pinned
+    ? `start-lan: using verified ${DSH_RELEASE} at ${dshCommand.command}`
+    : `start-lan: launching pinned ${DSH_RELEASE} via npx`)
 
   let host
   let proxy
@@ -212,23 +334,24 @@ async function main() {
   const cleanup = (code = 0) => {
     if (stopping) return
     stopping = true
-    stop(proxy)
-    stop(host)
-    setTimeout(() => {
-      stop(proxy)
-      stop(host)
-      process.exit(code)
-    }, 1_500).unref()
+    shutdownChildren([proxy, host]).finally(() => process.exit(code))
   }
   process.once('SIGINT', () => cleanup(0))
   process.once('SIGTERM', () => cleanup(0))
 
   try {
-    host = spawn(dshCommand.command, [...dshCommand.args, 'web', '--port', String(targetPort)], {
+    host = spawn(dshCommand.command, [
+      ...dshCommand.args,
+      'web',
+      '--port', String(targetPort),
+      '--public-url', `http://${lanIp}:${listenPort}`,
+    ], {
       cwd: ROOT,
       env: process.env,
-      stdio: 'inherit',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     })
+    host.stderr.pipe(process.stderr)
     host.once('error', (error) => {
       if (!stopping) {
         console.error(`start-lan: failed to start dsh: ${error.message}`)
@@ -241,26 +364,24 @@ async function main() {
         cleanup(1)
       }
     })
+    const tokenTimeout = Number(process.env.DSH_START_LAN_TOKEN_TIMEOUT_MS ?? DEFAULT_TOKEN_TIMEOUT_MS)
+    const upstreamToken = await watchForLaunchToken(host.stdout, host, tokenTimeout)
     await waitForUpstream(targetPort, host)
+    console.log('start-lan: captured the upstream launch token; handing it to the proxy')
 
-    const proxyEnv = { ...process.env,
-      DSH_REMOTE_TOKEN: token,
-      DSH_LISTEN_HOST: lanIp,
-      DSH_LISTEN_PORT: String(listenPort),
-      DSH_TARGET_HOST: '127.0.0.1',
-      DSH_TARGET_PORT: String(targetPort),
-      DSH_PAIR_QR: 'on',
-    }
-    delete proxyEnv.DSH_PUBLIC_URL
-    delete proxyEnv.DSH_TLS_CERT
-    delete proxyEnv.DSH_TLS_KEY
-    delete proxyEnv.DSH_LAUNCHER
-    delete proxyEnv.NO_COLOR
+    const proxyEnv = buildProxyEnv(process.env, {
+      masterToken: token,
+      upstreamToken,
+      lanIp,
+      listenPort,
+      targetPort,
+    })
 
     proxy = spawn(process.execPath, [path.join(ROOT, 'proxy/dsh-remote.mjs')], {
       cwd: ROOT,
       env: proxyEnv,
       stdio: 'inherit',
+      detached: process.platform !== 'win32',
     })
     proxy.once('error', (error) => {
       if (!stopping) {
@@ -281,8 +402,8 @@ async function main() {
     console.log('  1. Keep the phone and computer on the same Wi-Fi.')
     console.log('  2. Scan the QR code printed above.')
     console.log('  3. Tap “确认配对并连接” once in the phone browser.')
-    console.log('  The master token stays in this process and is never shown.')
-    console.log('  Press Ctrl-C to stop both dsh web and the LAN proxy.')
+    console.log('  The master and upstream launch tokens stay in this process tree.')
+    console.log('  Press Ctrl-C to stop dsh web, the proxy, and their process tree.')
     await new Promise(() => {})
   } catch (error) {
     cleanup(1)

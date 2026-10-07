@@ -1,16 +1,31 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { verifyExactGraph } from './lib/dsh-graph.mjs'
 
 const args = process.argv.slice(2)
-const version = args.find((arg) => !arg.startsWith('--'))
+/** Published release this repository's candidate checks are pinned to. */
+export const DSH_CANDIDATE_VERSION = '0.2.1-alpha.1'
+const positional = args.filter((arg, index) => !arg.startsWith('--') && args[index - 1] !== '--output')
+const version = positional[0] ?? DSH_CANDIDATE_VERSION
 const install = args.includes('--install')
 const outputArg = args.findIndex((arg) => arg === '--output')
-const output = resolve(outputArg >= 0 ? args[outputArg + 1] : `/tmp/dsh-candidate-${version ?? 'unknown'}`)
+const output = resolve(outputArg >= 0 ? args[outputArg + 1] : `/tmp/dsh-candidate-${version}`)
 
-if (!version || version.startsWith('--')) {
-  console.error('usage: node scripts/prepare-dsh-candidate.mjs <version> [--output /tmp/dsh-candidate] [--install]')
+if (version.startsWith('--')) {
+  console.error('usage: node scripts/prepare-dsh-candidate.mjs [version] [--output /tmp/dsh-candidate] [--install]')
   process.exit(2)
+}
+
+function verifyInstalledGraph(directory) {
+  const { packages, mismatch, exact } = verifyExactGraph(directory, version)
+  console.log(`installed @deepseek-ai/dsh* packages: ${packages.length}`)
+  if (!exact) {
+    if (packages.length === 0) throw new Error(`no @deepseek-ai/dsh* packages installed under ${directory}`)
+    const sample = mismatch.slice(0, 10).map((entry) => `${entry.name}@${entry.version}`).join(', ')
+    throw new Error(`mixed DSH prerelease stack: expected every package at ${version}; found ${mismatch.length} mismatch(es): ${sample}`)
+  }
+  console.log(`ok   all ${packages.length} installed @deepseek-ai/dsh* packages are exactly ${version}`)
 }
 
 const scopePrefix = '@deepseek-ai/dsh'
@@ -19,25 +34,27 @@ const visited = new Set()
 const overrides = {}
 const externalPeerRanges = new Map()
 
-const readManifest = (name) => {
-  try {
-    const raw = execFileSync('npm', ['view', `${name}@${version}`, '--json'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim()
-    return raw ? JSON.parse(raw) : {}
-  } catch (error) {
-    throw new Error(`cannot resolve exact ${name}@${version}; refusing to create a mixed-version candidate`, { cause: error })
-  }
-}
+/** Registry reads are independent; a small pool keeps the walk seconds, not minutes. */
+const MANIFEST_CONCURRENCY = 6
+const readManifest = (name) => new Promise((resolveManifest, rejectManifest) => {
+  execFile('npm', ['view', `${name}@${version}`, '--json'], { encoding: 'utf8' }, (error, stdout) => {
+    if (error) {
+      rejectManifest(new Error(`cannot resolve exact ${name}@${version}; refusing to create a mixed-version candidate`, { cause: error }))
+      return
+    }
+    const raw = String(stdout ?? '').trim()
+    try {
+      resolveManifest(raw ? JSON.parse(raw) : {})
+    } catch (parseError) {
+      rejectManifest(new Error(`cannot parse the ${name}@${version} manifest`, { cause: parseError }))
+    }
+  })
+})
 
-while (queue.length > 0) {
-  const name = queue.shift()
-  if (visited.has(name)) continue
+const absorbManifest = (name, manifest) => {
   visited.add(name)
   if (name !== '@deepseek-ai/dsh') overrides[name] = version
 
-  const manifest = readManifest(name)
   const peerDependencies = manifest.peerDependencies ?? {}
   const peerMeta = manifest.peerDependenciesMeta ?? {}
   for (const [peer, spec] of Object.entries(peerDependencies)) {
@@ -51,9 +68,28 @@ while (queue.length > 0) {
     ...peerDependencies,
   }
   for (const dependency of Object.keys(dependencies)) {
-    if (dependency.startsWith(scopePrefix) && !visited.has(dependency)) queue.push(dependency)
+    if (dependency.startsWith(scopePrefix) && !visited.has(dependency) && !queue.includes(dependency)) queue.push(dependency)
   }
 }
+
+let inFlight = 0
+await Promise.all(Array.from({ length: MANIFEST_CONCURRENCY }, async () => {
+  while (true) {
+    const name = queue.shift()
+    if (name === undefined) {
+      if (inFlight === 0) return
+      await new Promise((resolveWait) => setTimeout(resolveWait, 20))
+      continue
+    }
+    if (visited.has(name)) continue
+    inFlight += 1
+    try {
+      absorbManifest(name, await readManifest(name))
+    } finally {
+      inFlight -= 1
+    }
+  }
+}))
 
 const externalPeers = {}
 for (const [name, specs] of [...externalPeerRanges].sort(([a], [b]) => a.localeCompare(b))) {
@@ -103,4 +139,5 @@ if (install) {
     },
   })
   console.log('candidate install complete')
+  verifyInstalledGraph(output)
 }

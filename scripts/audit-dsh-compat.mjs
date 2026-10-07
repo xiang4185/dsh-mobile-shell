@@ -6,6 +6,9 @@ import { basename, join, resolve } from 'node:path'
 const contractPath = resolve('compat/dsh-ui-contract.json')
 const sceneDelegatePath = resolve('app/ios/App/App/SceneDelegate.swift')
 const contract = JSON.parse(readFileSync(contractPath, 'utf8'))
+const successorClasses = contract.successorClasses ?? {}
+const candidateOnlyPackages = contract.candidateOnlyPackages ?? []
+const semanticHooks = contract.semanticHooks ?? []
 
 const args = process.argv.slice(2)
 let baseline = contract.baselineVersion
@@ -15,14 +18,14 @@ for (let index = 0; index < args.length; index += 1) {
   if (arg === '--baseline') baseline = args[++index]
   else if (arg === '--candidate') candidates.push(...args[++index].split(',').filter(Boolean))
   else if (arg === '--help' || arg === '-h') {
-    console.log('usage: node scripts/audit-dsh-compat.mjs [--baseline 0.1.0-rc.6] --candidate 0.1.0-rc.7[,0.1.0-rc.8]')
+    console.log('usage: node scripts/audit-dsh-compat.mjs [--baseline 0.1.0-rc.8] --candidate 0.2.1-alpha.1')
     process.exit(0)
   } else {
     throw new Error(`unknown argument: ${arg}`)
   }
 }
 
-if (candidates.length === 0) candidates.push('0.1.0-rc.7', '0.1.0-rc.8')
+if (candidates.length === 0) candidates.push(contract.candidateVersion ?? contract.baselineVersion)
 
 const cacheRoot = join(tmpdir(), 'dsh-mobile-shell-compat-cache')
 mkdirSync(cacheRoot, { recursive: true })
@@ -56,9 +59,9 @@ const collectText = (directory) => {
   return text
 }
 
-const corpusFor = (version) => {
+const corpusFor = (version, extraPackages = []) => {
   let corpus = ''
-  for (const packageName of contract.packages) {
+  for (const packageName of [...contract.packages, ...extraPackages]) {
     corpus += collectText(unpackPackage(packageName, version))
   }
   return corpus
@@ -87,12 +90,28 @@ if (baselineUnmapped.length > 0) {
 
 let failed = false
 for (const candidate of candidates) {
-  const corpus = corpusFor(candidate)
+  const corpus = corpusFor(candidate, candidateOnlyPackages)
   const missing = baselineKnown.filter((className) => !corpus.includes(className))
-  const tolerated = missing.filter((className) => optional.has(className))
-  const breaking = missing.filter((className) => !optional.has(className))
+  const migrated = new Map()
+  const tolerated = []
+  const breaking = []
+  for (const className of missing) {
+    const successor = successorClasses[className]
+    if (successor !== undefined && corpus.includes(successor)) {
+      migrated.set(className, successor)
+      continue
+    }
+    if (optional.has(className)) {
+      tolerated.push(className)
+      continue
+    }
+    breaking.push(className)
+  }
 
   console.log(`\n${candidate}: ${baselineKnown.length - missing.length}/${baselineKnown.length} baseline classes retained`)
+  if (migrated.size > 0) {
+    console.log(`  documented successor classes (${migrated.size}): ${[...migrated].map(([from, to]) => `${from} -> ${to}`).join(', ')}`)
+  }
   if (tolerated.length > 0) console.log(`  tolerated removals: ${tolerated.join(', ')}`)
   if (breaking.length > 0) {
     failed = true
@@ -100,6 +119,23 @@ for (const candidate of candidates) {
   } else {
     console.log('  no contract-breaking private-class removals')
   }
+
+  const missingHooks = semanticHooks.filter((hook) => !corpus.includes(hook))
+  if (missingHooks.length > 0) {
+    failed = true
+    console.error(`  MISSING semantic hooks: ${missingHooks.join(', ')}`)
+  } else if (semanticHooks.length > 0) {
+    console.log(`  semantic hooks retained (${semanticHooks.length}): ${semanticHooks.join(', ')}`)
+  }
+
+  const candidateReferenced = referenced.filter((className) => corpus.includes(className))
+  const unjoined = referenced.filter((className) => successorClasses[className] !== undefined
+    && !corpus.includes(className) && !corpus.includes(successorClasses[className]))
+  if (unjoined.length > 0) {
+    failed = true
+    console.error(`  documented successors missing from the candidate corpus: ${unjoined.join(', ')}`)
+  }
+  console.log(`  candidate-mapped shell selectors: ${candidateReferenced.length}/${referenced.length}`)
 }
 
 if (failed) process.exitCode = 1
