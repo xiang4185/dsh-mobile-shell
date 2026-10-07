@@ -17,6 +17,7 @@
  */
 import crypto from 'node:crypto'
 import dgram from 'node:dgram'
+import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -118,7 +119,14 @@ export function resolveDshCommand(env = process.env) {
   if (env.DSH_BIN) {
     const probe = spawnSync(env.DSH_BIN, ['--version'], { encoding: 'utf8' })
     const reported = `${probe.stdout ?? ''}${probe.stderr ?? ''}`.trim()
-    if (probe.status !== 0 || !reported.includes(DSH_RELEASE_VERSION)) {
+    const exactVersion = reported
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .some((line) => line === DSH_RELEASE_VERSION
+        || line === `dsh ${DSH_RELEASE_VERSION}`
+        || line === DSH_RELEASE)
+    if (probe.status !== 0 || !exactVersion) {
       throw new Error(`DSH_BIN must be ${DSH_RELEASE}; got ${reported || 'no version output'}`)
     }
     return { command: env.DSH_BIN, args: [], pinned: true }
@@ -150,6 +158,7 @@ export function buildProxyEnv(baseEnv, { masterToken, upstreamToken, lanIp, list
   delete proxyEnv.DSH_TLS_CERT
   delete proxyEnv.DSH_TLS_KEY
   delete proxyEnv.DSH_LAUNCHER
+  delete proxyEnv.DSH_WORKDIR
   delete proxyEnv.NO_COLOR
   return proxyEnv
 }
@@ -313,6 +322,12 @@ async function main() {
   const targetPort = parsePort(process.env.DSH_TARGET_PORT ?? DEFAULT_TARGET_PORT, 'DSH_TARGET_PORT')
   const listenPort = parsePort(process.env.DSH_LISTEN_PORT ?? DEFAULT_LISTEN_PORT, 'DSH_LISTEN_PORT')
   const lanIp = await choosePrivateLanIPv4()
+  const hostWorkdir = process.env.DSH_WORKDIR === undefined
+    ? ROOT
+    : path.resolve(process.env.DSH_WORKDIR)
+  if (!fs.existsSync(hostWorkdir) || !fs.statSync(hostWorkdir).isDirectory()) {
+    throw new Error(`DSH_WORKDIR must name an existing directory, got ${hostWorkdir}`)
+  }
   if (await portInUse('127.0.0.1', targetPort)) {
     throw new Error(`127.0.0.1:${targetPort} is already in use; stop the existing dsh web or set DSH_TARGET_PORT`)
   }
@@ -346,7 +361,7 @@ async function main() {
       '--port', String(targetPort),
       '--public-url', `http://${lanIp}:${listenPort}`,
     ], {
-      cwd: ROOT,
+      cwd: hostWorkdir,
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',

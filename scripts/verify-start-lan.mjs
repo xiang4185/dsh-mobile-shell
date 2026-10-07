@@ -33,6 +33,7 @@ import {
   shutdownChildren,
   stopTree,
 } from './start-lan.mjs'
+import { STABLE_HOME, snapshotTree } from './lib/dsh-candidate.mjs'
 
 const REPO = fileURLToPath(new URL('../', import.meta.url))
 
@@ -69,6 +70,10 @@ const versionStub = (reported) => {
   return file
 }
 assert.throws(() => resolveDshCommand({ DSH_BIN: versionStub('0.1.0-rc.8') }),
+  /DSH_BIN must be @deepseek-ai\/dsh@0\.2\.1-alpha\.1/)
+assert.throws(() => resolveDshCommand({ DSH_BIN: versionStub('0.2.1-alpha.10') }),
+  /DSH_BIN must be @deepseek-ai\/dsh@0\.2\.1-alpha\.1/)
+assert.throws(() => resolveDshCommand({ DSH_BIN: versionStub('prefix 0.2.1-alpha.1 suffix') }),
   /DSH_BIN must be @deepseek-ai\/dsh@0\.2\.1-alpha\.1/)
 const verified = resolveDshCommand({ DSH_BIN: versionStub('0.2.1-alpha.1') })
 expect(verified.pinned === true && verified.args.length === 0, 'verified DSH_BIN must be used verbatim')
@@ -171,6 +176,15 @@ async function runIntegration({ live }) {
   const targetPort = await freePort()
   const listenPort = await freePort()
   const tokenBudget = live ? '300000' : '30000'
+  const isolationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-start-lan-integration-'))
+  const isolatedHome = path.join(isolationRoot, 'home')
+  const isolatedDshHome = path.join(isolationRoot, 'dsh-home')
+  const isolatedTmp = path.join(isolationRoot, 'tmp')
+  const isolatedWork = path.join(isolationRoot, 'work')
+  for (const dir of [isolatedHome, isolatedDshHome, isolatedTmp, isolatedWork]) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  const stableBefore = snapshotTree(STABLE_HOME)
   let bin
   if (live) {
     console.log(`note: live launcher integration via npx ${DSH_RELEASE} (may download the release)`)
@@ -179,18 +193,31 @@ async function runIntegration({ live }) {
     fs.writeFileSync(bin, STUB_HOST, { mode: 0o755 })
   }
 
+  const launcherEnv = {
+    ...process.env,
+    HOME: isolatedHome,
+    DSH_HOME: isolatedDshHome,
+    TMPDIR: isolatedTmp,
+    XDG_CONFIG_HOME: path.join(isolatedHome, '.config'),
+    XDG_CACHE_HOME: path.join(isolatedHome, '.cache'),
+    XDG_DATA_HOME: path.join(isolatedHome, '.local', 'share'),
+    XDG_STATE_HOME: path.join(isolatedHome, '.local', 'state'),
+    DSH_WORKDIR: isolatedWork,
+    ...(bin === undefined ? {} : { DSH_BIN: bin }),
+    DSH_LAN_IP: lanIp,
+    DSH_TARGET_PORT: String(targetPort),
+    DSH_LISTEN_PORT: String(listenPort),
+    DSH_START_LAN_TOKEN_TIMEOUT_MS: tokenBudget,
+    DSH_PAIR_QR: 'off',
+    NO_COLOR: '1',
+  }
+  for (const leaked of ['DSH_REMOTE_TOKEN', 'DSH_UPSTREAM_TOKEN', 'DSH_PUBLIC_URL', 'DSH_TLS_CERT', 'DSH_TLS_KEY', 'DSH_LAUNCHER']) {
+    delete launcherEnv[leaked]
+  }
+
   const launcher = spawn(process.execPath, [path.join(REPO, 'scripts/start-lan.mjs')], {
     cwd: REPO,
-    env: {
-      ...process.env,
-      ...(bin === undefined ? {} : { DSH_BIN: bin }),
-      DSH_LAN_IP: lanIp,
-      DSH_TARGET_PORT: String(targetPort),
-      DSH_LISTEN_PORT: String(listenPort),
-      DSH_START_LAN_TOKEN_TIMEOUT_MS: tokenBudget,
-      DSH_PAIR_QR: 'off',
-      NO_COLOR: '1',
-    },
+    env: launcherEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   })
@@ -267,7 +294,18 @@ async function runIntegration({ live }) {
 
   expect(await portReleased('127.0.0.1', targetPort), `dsh host still listening on ${targetPort} after shutdown`)
   expect(await portReleased(lanIp, listenPort), `proxy still listening on ${lanIp}:${listenPort} after shutdown`)
+  try {
+    assert.deepStrictEqual(snapshotTree(STABLE_HOME), stableBefore,
+      `Stable DSH home ${STABLE_HOME} changed during launcher integration`)
+    if (live) {
+      expect(snapshotTree(isolatedDshHome).length > 0,
+        'live launcher integration did not create state inside the disposable DSH_HOME')
+    }
+  } finally {
+    fs.rmSync(isolationRoot, { recursive: true, force: true })
+  }
   console.log('ok   launcher shutdown released both the host and proxy ports')
+  console.log('ok   launcher integration used disposable HOME/DSH_HOME/XDG/TMPDIR/workspace and left Stable state unchanged')
 }
 
 try {

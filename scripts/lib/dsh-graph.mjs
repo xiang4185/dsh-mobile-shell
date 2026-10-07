@@ -11,35 +11,62 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const SCOPE = '@deepseek-ai'
-const MAX_DEPTH = 4
 
 /** Every installed @deepseek-ai/dsh* package under a root, with its version. */
 export function installedDshPackages(root) {
   const found = []
-  const walkPackage = (dir, depth) => {
+  const visitedModules = new Set()
+
+  const packageDirs = (modulesDir) => {
+    if (!fs.existsSync(modulesDir)) return []
+    const dirs = []
+    for (const entry of fs.readdirSync(modulesDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name.startsWith('.')) continue
+      const entryPath = path.join(modulesDir, entry.name)
+      if (entry.name.startsWith('@')) {
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+        let scoped
+        try {
+          scoped = fs.readdirSync(entryPath, { withFileTypes: true })
+        } catch {
+          continue
+        }
+        for (const child of scoped.sort((a, b) => a.name.localeCompare(b.name))) {
+          if (child.isDirectory() || child.isSymbolicLink()) dirs.push(path.join(entryPath, child.name))
+        }
+      } else if (entry.isDirectory() || entry.isSymbolicLink()) {
+        dirs.push(entryPath)
+      }
+    }
+    return dirs
+  }
+
+  const walkPackage = (dir) => {
     const manifestPath = path.join(dir, 'package.json')
-    if (!fs.existsSync(manifestPath)) return
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-    found.push({ name: manifest.name ?? path.basename(dir), version: manifest.version })
-    if (depth < MAX_DEPTH) walkNested(path.join(dir, 'node_modules'), depth + 1)
-  }
-  const walkScope = (modulesDir, depth) => {
-    const scopeDir = path.join(modulesDir, SCOPE)
-    if (!fs.existsSync(scopeDir)) return
-    for (const name of fs.readdirSync(scopeDir).sort()) {
-      if (name.startsWith('dsh')) walkPackage(path.join(scopeDir, name), depth)
+    if (fs.existsSync(manifestPath)) {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+      if (typeof manifest.name === 'string'
+          && manifest.name.startsWith(`${SCOPE}/dsh`)) {
+        found.push({ name: manifest.name, version: manifest.version })
+      }
     }
+    walkModules(path.join(dir, 'node_modules'))
   }
-  const walkNested = (modulesDir, depth) => {
+
+  const walkModules = (modulesDir) => {
     if (!fs.existsSync(modulesDir)) return
-    walkScope(modulesDir, depth)
-    if (depth >= MAX_DEPTH) return
-    for (const entry of fs.readdirSync(modulesDir).sort()) {
-      if (entry.startsWith('.') || entry.startsWith('@')) continue
-      walkNested(path.join(modulesDir, entry, 'node_modules'), depth + 1)
+    let identity
+    try {
+      identity = fs.realpathSync(modulesDir)
+    } catch {
+      return
     }
+    if (visitedModules.has(identity)) return
+    visitedModules.add(identity)
+    for (const packageDir of packageDirs(modulesDir)) walkPackage(packageDir)
   }
-  walkNested(path.join(root, 'node_modules'), 0)
+
+  walkModules(path.join(root, 'node_modules'))
   return found
 }
 

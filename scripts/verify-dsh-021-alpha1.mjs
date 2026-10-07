@@ -31,6 +31,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -59,12 +60,14 @@ const REPO = fileURLToPath(new URL('../', import.meta.url))
 
 const args = process.argv.slice(2)
 let checkIsolation = false
+let checkExactGraph = false
 let keepState = false
 for (const arg of args) {
   if (arg === '--check-isolation') checkIsolation = true
+  else if (arg === '--check-exact-graph') checkExactGraph = true
   else if (arg === '--keep-state') keepState = true
   else if (arg === '--help' || arg === '-h') {
-    console.log('usage: node scripts/verify-dsh-021-alpha1.mjs [--check-isolation] [--keep-state]')
+    console.log('usage: node scripts/verify-dsh-021-alpha1.mjs [--check-isolation] [--check-exact-graph] [--keep-state]')
     process.exit(0)
   } else {
     throw new Error(`unknown argument: ${arg}`)
@@ -76,6 +79,58 @@ function expect(condition, message) {
 }
 function ok(name) {
   console.log(`ok   ${name}`)
+}
+
+function writePackage(dir, name, version) {
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'package.json'), `${JSON.stringify({ name, version })}\n`)
+}
+
+function verifyExactGraphRegression() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-exact-graph-check-'))
+  try {
+    writePackage(path.join(root, 'node_modules', '@deepseek-ai', 'dsh'), '@deepseek-ai/dsh', CANDIDATE_VERSION)
+    const deepParent = path.join(
+      root,
+      'node_modules', 'outer-a',
+      'node_modules', '@vendor', 'outer-b',
+      'node_modules', 'outer-c',
+      'node_modules', 'outer-d',
+      'node_modules', 'outer-e',
+    )
+    writePackage(deepParent, 'outer-e', '1.0.0')
+    writePackage(
+      path.join(deepParent, 'node_modules', '@deepseek-ai', 'dsh-deep-mismatch'),
+      '@deepseek-ai/dsh-deep-mismatch',
+      '0.2.1-alpha.10',
+    )
+    const scopedParent = path.join(root, 'node_modules', '@example', 'scoped-parent')
+    writePackage(scopedParent, '@example/scoped-parent', '1.0.0')
+    writePackage(
+      path.join(scopedParent, 'node_modules', '@deepseek-ai', 'dsh-scoped-mismatch'),
+      '@deepseek-ai/dsh-scoped-mismatch',
+      '0.2.0-rc.2',
+    )
+    const mixed = verifyExactGraph(root, CANDIDATE_VERSION)
+    expect(!mixed.exact, 'mixed deep/scoped DSH graph was incorrectly accepted as exact')
+    expect(mixed.mismatch.some((entry) => entry.name === '@deepseek-ai/dsh-deep-mismatch'),
+      'deep nested DSH mismatch was not discovered')
+    expect(mixed.mismatch.some((entry) => entry.name === '@deepseek-ai/dsh-scoped-mismatch'),
+      'DSH mismatch below a scoped parent was not discovered')
+
+    fs.rmSync(path.join(deepParent, 'node_modules', '@deepseek-ai', 'dsh-deep-mismatch'), { recursive: true, force: true })
+    fs.rmSync(path.join(scopedParent, 'node_modules', '@deepseek-ai', 'dsh-scoped-mismatch'), { recursive: true, force: true })
+    const exact = verifyExactGraph(root, CANDIDATE_VERSION)
+    expect(exact.exact, 'all-matching synthetic DSH graph did not verify as exact')
+    ok('exact-graph regression rejects deep and scoped mixed DSH versions')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+}
+
+if (checkExactGraph) {
+  verifyExactGraphRegression()
+  process.exit(0)
 }
 
 // ── WS helper ────────────────────────────────────────────────────────────
